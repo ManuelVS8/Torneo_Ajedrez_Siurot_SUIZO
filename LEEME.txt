@@ -1,0 +1,41 @@
+TORNEO DE AJEDREZ · CEIP MANUEL SIUROT
+=====================================
+
+QUÉ HAY
+  index.html        Página PÚBLICA (solo lectura). Es la que enlazas desde ajedrezsiurot.com.
+  admin.html        Tu panel (necesita clave). Solo tú anotas resultados y generas rondas.
+  apps-script/Code.gs   El código que va en Google Apps Script.
+  resto             estilo, iconos, manifiestos y sw.js (no hace falta tocarlos).
+
+PASO 1 · Google Apps Script (5 min)
+  1. Abre tu Google Sheet del torneo > Extensiones > Apps Script.
+  2. Borra el código antiguo y pega todo el contenido de apps-script/Code.gs.
+  3. Arriba del todo cambia  CLAVE_ADMIN = 'CAMBIA-ESTA-CLAVE'  por una clave NUEVA
+     (la antigua estuvo publicada en el código viejo: no la reutilices).
+  4. Implementar > Administrar implementaciones > lápiz > Versión: "Nueva versión" > Implementar.
+     (Así la dirección /exec de siempre sigue funcionando. Acceso: "Cualquier persona".)
+  5. La primera vez te pedirá permisos: acéptalos.
+  Mientras no cambies la clave, el Script rechaza cualquier escritura.
+
+PASO 2 · GitHub Pages
+  1. Crea un repositorio público y sube TODO el contenido de esta carpeta (menos LEEME.txt si quieres).
+  2. Settings > Pages > Branch: main, carpeta /root > Save.
+  3. Tu web será  https://TU-USUARIO.github.io/NOMBRE-REPO/  (público)
+     y  .../admin.html  (tu panel). Pon solo el enlace público en ajedrezsiurot.com.
+  Si algún día cambias la dirección del Script, edita SCRIPT_URL al principio de comun.js.
+
+USO
+  - Torneo > Nuevo torneo: pega los nombres (uno por línea), fecha de la ronda 1 y crea.
+    Ojo: crear un torneo nuevo BORRA los datos del anterior en el Sheet.
+  - Mesas: toca el lado del ganador (se guarda solo). Toca otra vez para borrar. ½ = tablas.
+  - Cuando están todos los resultados aparece "Generar ronda N" (te pide la fecha).
+  - Torneo: fechas por ronda, aviso para las familias, imprimir mesas/clasificación, deshacer ronda.
+  - En el móvil: abre la web en Chrome y usa "Instalar app" (en iPhone: Compartir > Añadir a inicio).
+  - Si algo falla, añade ?diag al final de la dirección: muestra una lista de comprobaciones.
+
+SEGURIDAD
+  - La clave se comprueba en el servidor. Tras 5 fallos seguidos se bloquea 10 minutos
+    (también a ti, si alguien lo intenta).
+  - Los datos públicos se guardan 30 s en caché: con muchas visitas no se agota la cuota de Google.
+  - La página pública muestra nombre y curso de los niños: confirma que tenéis permiso del centro/familias
+    (si prefieres, escribe solo el nombre de pila y la inicial del apellido).

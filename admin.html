@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Panel del torneo · Ajedrez Siurot</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#06566b">
+<link rel="manifest" href="manifest-admin.json">
+<link rel="icon" type="image/png" href="iconos/favicon.png">
+<link rel="apple-touch-icon" href="iconos/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Torneo Siurot">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body class="admin">
+
+<header class="cab">
+  <div class="cab-fila">
+    <img src="iconos/icon-192.png" alt="" width="52" height="52">
+    <div>
+      <h1>Panel del torneo</h1>
+      <p>Solo para el maestro</p>
+    </div>
+    <div class="cab-acc">
+      <button class="btn-ico" id="btn-recargar" aria-label="Actualizar datos" hidden></button>
+      <button class="btn-ico" data-instalar hidden aria-label="Instalar la app"></button>
+    </div>
+  </div>
+</header>
+
+<section id="login" class="contenido">
+  <div class="panel">
+    <h2>Entrar</h2>
+    <p>Escribe la clave del torneo para anotar resultados y generar rondas.</p>
+    <label class="etq" for="clave">Clave</label>
+    <div class="clave">
+      <input id="clave" class="campo" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false">
+      <button type="button" class="btn-ico" id="ver-clave" aria-label="Mostrar la clave" aria-pressed="false"></button>
+    </div>
+    <label class="leyenda" style="margin-top:12px"><input type="checkbox" id="recordar"> Recordar en este dispositivo</label>
+    <p class="ayuda">Márcalo solo en tu móvil u ordenador personal, no en un Chromebook compartido.</p>
+    <p class="error-txt" id="login-error" role="alert"></p>
+    <button class="btn" id="entrar">Entrar</button>
+  </div>
+</section>
+
+<div id="app" hidden>
+  <main class="contenido" id="vista" aria-live="polite"></main>
+  <div class="barra-gen" id="barra" hidden></div>
+  <nav class="nav" aria-label="Secciones">
+    <button data-tab="mesas"></button>
+    <button data-tab="clasif"></button>
+    <button data-tab="jugadores"></button>
+    <button data-tab="torneo"></button>
+  </nav>
+</div>
+
+<div id="zona-imprimir"></div>
+
+<script src="comun.js"></script>
+<script>
+(function () {
+  'use strict';
+  const S = Siurot;
+  const { $, $$, esc, I } = S;
+
+  let clave = '', db = null, tab = 'mesas', ronda = 0, busca = '', generando = false;
+  const guardado = {};          // estado de guardado por mesa: 'guardando' | 'error'
+  const cola = [];              // resultados pendientes de enviar
+  let enCurso = false;
+  const form = { nombre: '', jugadores: '', rondas: '', fecha: '' };   // formulario "Nuevo torneo" (no se pierde al refrescar)
+  let aviso = null;             // texto del aviso en edición
+
+  const norm = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const por = () => S.jugadoresPorId(db);
+  const maxRondas = (n) => Math.max(2, Math.min(12, Math.floor(n / 2)));
+  const sugeridas = (n) => Math.min(maxRondas(n), Math.max(2, Math.ceil(Math.log2(Math.max(n, 2)))));
+
+  $('#btn-recargar').innerHTML = I.recargar;
+  $('[data-instalar]').innerHTML = I.instalar;
+  $('#ver-clave').innerHTML = I.ojo;
+  const etq = { mesas: ['Mesas', I.mesas], clasif: ['Clasificación', I.podio], jugadores: ['Jugadores', I.gente], torneo: ['Torneo', I.ajustes] };
+  $$('.nav button').forEach((b) => { const e = etq[b.dataset.tab]; b.innerHTML = e[1] + '<span>' + e[0] + '</span>'; });
+
+  // ---------- Entrada ----------
+  $('#ver-clave').addEventListener('click', () => {
+    const i = $('#clave'), ver = i.type === 'password';
+    i.type = ver ? 'text' : 'password';
+    $('#ver-clave').innerHTML = ver ? I.ojoNo : I.ojo;
+    $('#ver-clave').setAttribute('aria-pressed', String(ver));
+    $('#ver-clave').setAttribute('aria-label', ver ? 'Ocultar la clave' : 'Mostrar la clave');
+  });
+  $('#clave').addEventListener('keydown', (e) => { if (e.key === 'Enter') entrar(); });
+  $('#entrar').addEventListener('click', () => entrar());
+
+  async function entrar(silencioso, claveGuardada) {
+    const k = claveGuardada || $('#clave').value;
+    const err = $('#login-error'); err.textContent = '';
+    if (!k) { err.textContent = 'Escribe la clave.'; return; }
+    const btn = $('#entrar'); btn.disabled = true; btn.textContent = 'Comprobando…';
+    try {
+      await S.api.enviar({ action: 'login', key: k });
+      clave = k;
+      try {
+        if ($('#recordar').checked) localStorage.setItem('siurot_clave', k);
+        sessionStorage.setItem('siurot_clave', k);
+      } catch (e) { /* sin almacenamiento */ }
+      $('#clave').value = '';
+      mostrarApp();
+      await cargar(true);
+    } catch (e) {
+      if (silencioso) { try { localStorage.removeItem('siurot_clave'); sessionStorage.removeItem('siurot_clave'); } catch (x) { /* */ } }
+      else err.textContent = e.message;
+    } finally { btn.disabled = false; btn.textContent = 'Entrar'; }
+  }
+  function mostrarApp() {
+    $('#login').hidden = true; $('#app').hidden = false; $('#btn-recargar').hidden = false;
+    S.nav.iniciar(tab, (t, atras) => irA(t, atras));
+    pintar();
+  }
+  function salir() {
+    try { localStorage.removeItem('siurot_clave'); sessionStorage.removeItem('siurot_clave'); } catch (e) { /* */ }
+    location.reload();
+  }
+
+  // ---------- Datos ----------
+  async function cargar(silencio) {
+    try {
+      db = await S.api.leer();
+      if (!form.rondas) form.rondas = '';
+      pintar();
+      if (!silencio) S.toast('Datos al día', 'ok');
+    } catch (e) { S.toast(e.message, 'mal'); }
+  }
+  function aplicar(res) { if (res && res.db) { db = res.db; } }
+
+  // ---------- Guardado de resultados (cola, uno a uno) ----------
+  function encolar(r, t, v) {
+    guardado[r + '_' + t] = 'guardando';
+    cola.push({ r, t, v });
+    procesar();
+  }
+  async function procesar() {
+    if (enCurso) return;
+    enCurso = true;
+    let fallo = false;
+    while (cola.length) {
+      const it = cola[0], k = it.r + '_' + it.t;
+      try {
+        await S.api.enviar({ action: 'setResult', key: clave, round: it.r, table: it.t, result: it.v });
+        if (!cola.some((x, i) => i > 0 && x.r === it.r && x.t === it.t)) delete guardado[k];
+      } catch (e) { guardado[k] = 'error'; fallo = true; S.toast(e.message, 'mal'); }
+      cola.shift();
+      if (tab === 'mesas') pintarMesas();
+    }
+    enCurso = false;
+    if (!fallo) await cargar(true);
+    else pintar();
+  }
+
+  // ---------- Vistas ----------
+  function vacio(t, s) { return `<div class="vacio">${I.peon}<b>${t}</b>${s}</div>`; }
+
+  function vistaMesas() {
+    if (!db.started) return vacio('No hay torneo en marcha', 'Ve a la pestaña Torneo para crear uno.');
+    if (!ronda || ronda > db.currentRound) ronda = db.currentRound;
+    const p = por();
+    const ms = S.partidasRonda(db, ronda);
+    const f = db.fechas[ronda] ? ` · ${S.fecha(db.fechas[ronda])}` : '';
+    return `${S.pasosHtml(db, ronda)}<p class="nota" style="margin:0 4px 12px">Toca el lado del ganador (se guarda solo). Toca otra vez para borrar. El ½ del centro es tablas.${f ? '<br>Ronda ' + ronda + f : ''}</p>
+      <div class="lista-mesas">${ms.map((m) => S.mesaHtml(m, p, { admin: true, guardado })).join('')}</div>`;
+  }
+  function pintarMesas() { if (tab === 'mesas' && db) { const sy = window.scrollY; $('#vista').innerHTML = vistaMesas(); window.scrollTo(0, sy); barra(); } }
+
+  function barra() {
+    const b = $('#barra');
+    if (tab !== 'mesas' || !db || !db.started || ronda !== db.currentRound) { b.hidden = true; document.body.classList.add('sin-barra'); return; }
+    const ms = S.partidasRonda(db, db.currentRound).filter((m) => m.player2Id !== -1);
+    const hechos = ms.filter((m) => m.result).length, pend = ms.length - hechos;
+    const guardando = cola.length > 0 || enCurso;
+    let boton;
+    if (generando) boton = '<button class="btn" disabled>Generando…</button>';
+    else if (db.currentRound >= db.totalRondas && pend === 0) boton = `<button class="btn cinta" data-act="fin">${I.corona} Torneo terminado: ver clasificación</button>`;
+    else if (pend > 0) boton = `<button class="btn" disabled>Faltan ${pend} resultado${pend === 1 ? '' : 's'}</button>`;
+    else if (guardando) boton = '<button class="btn" disabled>Guardando…</button>';
+    else boton = `<button class="btn cinta" data-act="generar">Generar ronda ${db.currentRound + 1} de ${db.totalRondas}</button>`;
+    b.innerHTML = `<div><p>Ronda ${db.currentRound}: ${hechos} de ${ms.length} resultados</p><div class="progreso"><i style="width:${ms.length ? Math.round(hechos * 100 / ms.length) : 0}%"></i></div>${boton}</div>`;
+    b.hidden = false; document.body.classList.remove('sin-barra');
+  }
+
+  function vistaClasif() {
+    if (!db.started) return vacio('Todavía no hay clasificación', 'Crea un torneo para empezar.');
+    return S.clasificacionHtml(db, {}) + `<div class="btns"><button class="btn sec" data-act="imprimir-clasif">${I.imprimir} Imprimir la clasificación</button></div>`;
+  }
+
+  function vistaJugadores() {
+    if (!db.players.length) return vacio('No hay jugadores', 'Crea un torneo desde la pestaña Torneo.');
+    const q = norm(busca.trim());
+    let lista = db.players.slice().sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    if (q) lista = lista.filter((x) => norm(x.name).includes(q));
+    let h = `<div class="buscar">${I.lupa}<label class="sr" for="q">Buscar jugador</label><input id="q" type="search" placeholder="Buscar jugador" value="${esc(busca)}" autocomplete="off"></div>`;
+    lista.forEach((x) => { h += `<button class="fila-j ${x.retired ? 'ret' : ''}" data-act="jugador" data-id="${x.id}"><span class="pos num">${x.pos}</span><span class="n">${esc(x.name)}${x.retired ? '<small>retirado</small>' : ''}</span><span class="p num">${S.pts(x.points)}</span></button>`; });
+    return h + '<p class="nota">Toca un jugador para ver sus partidas o retirarlo del torneo (por ejemplo, si se marcha del colegio).</p>';
+  }
+
+  function vistaTorneo() {
+    const hay = db && db.started;
+    const n = db ? db.players.length : 0;
+    let h = '';
+    if (hay) {
+      h += `<section class="panel"><h2>Días de juego</h2><p class="ayuda" style="margin:0 0 6px">Las familias ven la fecha de cada ronda y el aviso de «próxima ronda».</p>`;
+      for (let r = 1; r <= db.totalRondas; r++) h += `<div class="fila-ronda"><b>Ronda ${r}</b><input class="campo" type="date" data-fecha="${r}" value="${esc(db.fechas[r] || '')}" aria-label="Fecha de la ronda ${r}"></div>`;
+      h += '</section>';
+      const max = maxRondas(n), min = Math.max(db.currentRound, 1);
+      h += `<section class="panel"><h2>Número de rondas</h2><div class="paso-num"><button data-act="menos" ${db.totalRondas <= min ? 'disabled' : ''} aria-label="Una ronda menos">−</button><b class="num">${db.totalRondas}</b><button data-act="mas" ${db.totalRondas >= max ? 'disabled' : ''} aria-label="Una ronda más">+</button></div>
+        <p class="ayuda" style="text-align:center">Con ${n} jugadores: de ${min} a ${max} rondas. Recomendado: ${sugeridas(n)}.</p></section>`;
+      if (aviso === null) aviso = db.aviso || '';
+      h += `<section class="panel"><h2>Aviso para las familias</h2><label class="etq" for="aviso">Mensaje (aparece arriba en la web)</label>
+        <textarea id="aviso" class="campo" maxlength="300" placeholder="Ej.: Mañana jugamos la ronda 3 en el patio, a la hora del recreo.">${esc(aviso)}</textarea>
+        <div class="btns"><button class="btn" data-act="guardar-aviso">Guardar aviso</button></div></section>`;
+      h += `<section class="panel"><h2>Imprimir</h2><p class="ayuda" style="margin:0 0 6px">Se abre el cuadro de impresión de Chrome; también puedes elegir «Guardar como PDF».</p>
+        <div class="btns"><button class="btn sec" data-act="imprimir-mesas">${I.imprimir} Mesas de la ronda ${ronda || db.currentRound}</button><button class="btn sec" data-act="imprimir-clasif">${I.imprimir} Clasificación</button></div></section>`;
+      if (db.currentRound > 1) h += `<section class="panel"><h2>Me he equivocado</h2><p>Si generaste una ronda por error, puedes deshacer la última (la ronda ${db.currentRound}) y sus resultados.</p><div class="btns"><button class="btn sec" data-act="deshacer">Deshacer la ronda ${db.currentRound}</button></div></section>`;
+    }
+    const lineas = form.jugadores.split('\n').map((x) => x.trim()).filter(Boolean).length;
+    h += `<section class="panel"><h2>${hay ? 'Empezar un torneo nuevo' : 'Crear el torneo'}</h2>
+      ${hay ? '<p class="ayuda" style="margin:0 0 6px">Esto borra el torneo actual con todos sus resultados.</p>' : ''}
+      <label class="etq" for="f-nombre">Nombre del torneo</label><input id="f-nombre" class="campo" maxlength="60" placeholder="Torneo de ajedrez del recreo" value="${esc(form.nombre)}">
+      <label class="etq" for="f-jug">Jugadores (uno por línea)</label>
+      <textarea id="f-jug" class="campo" style="min-height:170px" placeholder="Awatef 4ºA&#10;Antonio 3ºB&#10;Lucas 4ºA">${esc(form.jugadores)}</textarea>
+      <p class="ayuda" id="f-cuenta">${lineas} jugador${lineas === 1 ? '' : 'es'}${lineas >= 4 ? ' · rondas recomendadas: ' + sugeridas(lineas) : ' · hacen falta al menos 4'}. Si dos comparten nombre, añade el curso.</p>
+      <label class="etq" for="f-rondas">Número de rondas (vacío = recomendado)</label><input id="f-rondas" class="campo" type="number" min="1" max="12" inputmode="numeric" value="${esc(form.rondas)}">
+      <label class="etq" for="f-fecha">Día de la ronda 1 (opcional)</label><input id="f-fecha" class="campo" type="date" value="${esc(form.fecha)}">
+      <div class="btns"><button class="btn ${hay ? 'mal' : 'cinta'}" data-act="crear">${hay ? 'Borrar todo y crear el torneo nuevo' : 'Crear torneo y sortear la ronda 1'}</button></div></section>`;
+    h += `<section class="panel"><h2>Sesión</h2><div class="btns"><button class="btn sec" data-act="salir">Cerrar sesión</button></div>
+      <p class="ayuda"><a class="enlace" href="?diag">Comprobar que la app está bien instalada</a></p>
+      <button class="btn" data-instalar hidden style="margin-top:8px">${I.instalar} Instalar el panel en este dispositivo</button>
+      <p data-ios hidden class="ayuda">En iPhone: botón Compartir de Safari → <b>Añadir a pantalla de inicio</b>.</p></section>`;
+    return h;
+  }
+
+  function pintar() {
+    if (!db) return;
+    $$('.nav button').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
+    const foco = document.activeElement && document.activeElement.id === 'q';
+    const pos = foco ? document.activeElement.selectionStart : 0;
+    $('#vista').innerHTML = ({ mesas: vistaMesas, clasif: vistaClasif, jugadores: vistaJugadores, torneo: vistaTorneo })[tab]();
+    S.pintarInstalar(); barra();
+    if (foco) { const q = $('#q'); if (q) { q.focus(); q.setSelectionRange(pos, pos); } }
+  }
+  function irA(t, atras) {
+    if (t === tab) return;
+    tab = t; busca = '';
+    if (!atras) S.nav.pestana(t);
+    pintar(); window.scrollTo(0, 0);
+  }
+
+  // ---------- Acciones ----------
+  function fichaJugador(id) {
+    const x = por()[id]; if (!x) return;
+    const caja = S.hoja(S.fichaHtml(db, x, `<p class="ayuda">${x.retired ? 'Está retirado: no se le empareja en las próximas rondas.' : 'Si se retira, no se le emparejará más; sus puntos y partidas se conservan.'}</p>
+      <div class="btns"><button class="btn ${x.retired ? '' : 'mal'}" data-r="ret">${x.retired ? 'Reincorporar al torneo' : 'Retirar del torneo'}</button><button class="btn sec" data-r="x">Cerrar</button></div>`));
+    caja.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-r]'); if (!b) return;
+      if (b.dataset.r !== 'ret') { S.cerrarHoja(); return; }
+      if (!x.retired) {
+        const ok = await S.confirmar({ titulo: `¿Retirar a ${x.name}?`, texto: 'No se le emparejará en las próximas rondas.', ok: 'Retirar', peligro: true });
+        if (!ok) return;
+      }
+      try { aplicar(await S.api.enviar({ action: 'setRetirado', key: clave, id, value: !x.retired })); pintar(); S.toast(x.retired ? 'Reincorporado' : 'Retirado', 'ok'); S.cerrarHoja(); }
+      catch (err) { S.toast(err.message, 'mal'); }
+    });
+  }
+
+  function dialogoGenerar() {
+    if (cola.length || enCurso) { S.toast('Espera a que termine de guardar', 'mal'); return; }
+    const n = db.currentRound + 1;
+    const caja = S.hoja(`<div class="asa"></div><h2>Generar la ronda ${n}</h2>
+      <p class="sub">Se emparejará según la clasificación actual, sin repetir rivales y repartiendo los colores.</p>
+      <label class="etq" for="f-f">Día de juego (opcional)</label><input id="f-f" type="date" class="campo" value="${esc(db.fechas[n] || '')}">
+      <div class="btns dos"><button class="btn sec" data-r="no">Cancelar</button><button class="btn cinta" data-r="si">Generar</button></div>`);
+    caja.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-r]'); if (!b) return;
+      const fecha = $('#f-f', caja).value;
+      S.cerrarHoja();
+      if (b.dataset.r !== 'si') return;
+      generando = true; barra();
+      try {
+        const res = await S.api.enviar({ action: 'nextRound', key: clave, fecha });
+        aplicar(res); ronda = db.currentRound;
+        S.toast(`Ronda ${db.currentRound} generada`, 'ok');
+        if (res.warnings && res.warnings.length) S.aviso('Revisa estas mesas', '<ul>' + res.warnings.map((w) => `<li>${esc(w)}</li>`).join('') + '</ul>');
+      } catch (err) { S.toast(err.message, 'mal'); }
+      generando = false; pintar(); window.scrollTo(0, 0);
+    });
+  }
+
+  async function crear() {
+    const nombres = form.jugadores.split('\n').map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    if (nombres.length < 4) { S.toast('Hacen falta al menos 4 jugadores', 'mal'); return; }
+    const hay = db && db.started;
+    const ok = await S.confirmar(hay
+      ? { titulo: 'Borrar el torneo actual', texto: `Se perderán todos los resultados y se creará uno nuevo con ${nombres.length} jugadores.`, ok: 'Borrar y crear', peligro: true, escribir: 'BORRAR' }
+      : { titulo: 'Crear el torneo', texto: `Se sorteará la ronda 1 con ${nombres.length} jugadores.`, ok: 'Crear' });
+    if (!ok) return;
+    S.toast('Creando el torneo…');
+    try {
+      const res = await S.api.enviar({ action: 'create', key: clave, players: nombres, rondas: parseInt(form.rondas, 10) || 0, nombre: form.nombre.trim() || 'Torneo de ajedrez', fecha: form.fecha });
+      aplicar(res); form.jugadores = ''; form.nombre = ''; form.rondas = ''; form.fecha = ''; aviso = null; ronda = 1;
+      irA('mesas'); pintar();
+      S.toast('Torneo creado', 'ok');
+      if (res.warnings && res.warnings.length) S.aviso('Revisa estas mesas', '<ul>' + res.warnings.map((w) => `<li>${esc(w)}</li>`).join('') + '</ul>');
+    } catch (err) { S.toast(err.message, 'mal'); }
+  }
+
+  async function enviar(cuerpo, ok) {
+    try { aplicar(await S.api.enviar(Object.assign({ key: clave }, cuerpo))); if (ok) S.toast(ok, 'ok'); return true; }
+    catch (err) { S.toast(err.message, 'mal'); return false; }
+  }
+
+  // ---------- Impresión ----------
+  function imprimir(html) { $('#zona-imprimir').innerHTML = html; window.print(); }
+  function imprimirMesas() {
+    const r = ronda || db.currentRound, p = por();
+    const f = db.fechas[r] ? ' · ' + S.fecha(db.fechas[r]) : '';
+    const filas = S.partidasRonda(db, r).map((m) => m.player2Id === -1
+      ? `<tr><td class="c">${m.table}</td><td colspan="3">${esc(p[m.player1Id].name)} — descansa (1 punto)</td></tr>`
+      : `<tr><td class="c">${m.table}</td><td>${esc(p[m.player1Id].name)}</td><td class="c">${m.result === '1-0' ? '1 – 0' : m.result === '0-1' ? '0 – 1' : m.result ? '½ – ½' : '&nbsp;'}</td><td>${esc(p[m.player2Id].name)}</td></tr>`).join('');
+    imprimir(`<h1>${esc(db.nombre)}</h1><h2>Ronda ${r}${f}</h2><table><thead><tr><th class="c">Mesa</th><th>Blancas</th><th class="c">Resultado</th><th>Negras</th></tr></thead><tbody>${filas}</tbody></table>`);
+  }
+  function imprimirClasif() {
+    const filas = S.ordenados(db).map((x) => `<tr><td class="c">${x.pos}</td><td>${esc(x.name)}${x.retired ? ' (retirado)' : ''}</td><td class="c">${S.pts(x.points)}</td><td class="c">${S.pts(Math.round(x.buchholz * 10) / 10)}</td></tr>`).join('');
+    imprimir(`<h1>${esc(db.nombre)}</h1><h2>Clasificación${db.finished ? ' final' : ' tras la ronda ' + (db.currentRound - (db.roundDone ? 0 : 1))}</h2><table><thead><tr><th class="c">Puesto</th><th>Jugador</th><th class="c">Puntos</th><th class="c">Buchholz</th></tr></thead><tbody>${filas}</tbody></table>`);
+  }
+
+  // ---------- Eventos ----------
+  document.addEventListener('click', async (e) => {
+    const nav = e.target.closest('.nav [data-tab]'); if (nav) { irA(nav.dataset.tab); return; }
+    if (e.target.closest('#btn-recargar')) { if (cola.length || enCurso) S.toast('Espera, se está guardando', 'mal'); else cargar(false); return; }
+    const paso = e.target.closest('.paso[data-ronda]'); if (paso && !paso.disabled) { ronda = parseInt(paso.dataset.ronda, 10); pintar(); return; }
+    const a = e.target.closest('[data-act]'); if (!a) return;
+    const act = a.dataset.act;
+    if (act === 'res') {
+      const r = parseInt(a.dataset.round, 10), t = parseInt(a.dataset.table, 10), v = a.dataset.val;
+      const m = db.matches.find((x) => x.round === r && x.table === t); if (!m) return;
+      const nuevo = (m.result === v && guardado[r + '_' + t] !== 'error') ? '' : v;
+      m.result = nuevo; encolar(r, t, nuevo); pintarMesas(); return;
+    }
+    if (act === 'jugador') { fichaJugador(parseInt(a.dataset.id, 10)); return; }
+    if (act === 'generar') { dialogoGenerar(); return; }
+    if (act === 'fin') { irA('clasif'); S.confeti(); return; }
+    if (act === 'imprimir-mesas') { imprimirMesas(); return; }
+    if (act === 'imprimir-clasif') { imprimirClasif(); return; }
+    if (act === 'guardar-aviso') { if (await enviar({ action: 'setAviso', texto: $('#aviso').value }, 'Aviso guardado')) { aviso = db.aviso; } return; }
+    if (act === 'menos' || act === 'mas') { if (await enviar({ action: 'setRondas', rondas: db.totalRondas + (act === 'mas' ? 1 : -1) })) pintar(); return; }
+    if (act === 'deshacer') {
+      const ok = await S.confirmar({ titulo: `¿Deshacer la ronda ${db.currentRound}?`, texto: 'Se borran sus mesas y resultados. Podrás generarla de nuevo.', ok: 'Deshacer', peligro: true });
+      if (ok && await enviar({ action: 'undoRound' }, 'Ronda deshecha')) { ronda = db.currentRound; pintar(); }
+      return;
+    }
+    if (act === 'crear') { crear(); return; }
+    if (act === 'salir') { salir(); return; }
+  });
+  document.addEventListener('change', async (e) => {
+    const f = e.target.dataset && e.target.dataset.fecha;
+    if (f) await enviar({ action: 'setFecha', round: parseInt(f, 10), fecha: e.target.value }, 'Fecha guardada');
+  });
+  document.addEventListener('input', (e) => {
+    const id = e.target.id;
+    if (id === 'q') { busca = e.target.value; pintar(); }
+    else if (id === 'f-nombre') form.nombre = e.target.value;
+    else if (id === 'f-rondas') form.rondas = e.target.value;
+    else if (id === 'f-fecha') form.fecha = e.target.value;
+    else if (id === 'aviso') aviso = e.target.value;
+    else if (id === 'f-jug') {
+      form.jugadores = e.target.value;
+      const n = form.jugadores.split('\n').map((x) => x.trim()).filter(Boolean).length;
+      $('#f-cuenta').textContent = `${n} jugador${n === 1 ? '' : 'es'}${n >= 4 ? ' · rondas recomendadas: ' + sugeridas(n) : ' · hacen falta al menos 4'}. Si dos comparten nombre, añade el curso.`;
+    }
+  });
+  setInterval(() => { if (clave && !document.hidden && tab !== 'torneo' && !cola.length && !enCurso && !generando && !S.hayVentana()) cargar(true); }, 45000);
+
+  // ---------- Inicio ----------
+  let k = '';
+  try { k = localStorage.getItem('siurot_clave') || sessionStorage.getItem('siurot_clave') || ''; } catch (e) { /* */ }
+  if (k) entrar(true, k);
+  else setTimeout(() => $('#clave').focus(), 50);
+})();
+</script>
+</body>
+</html>

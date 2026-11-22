@@ -1,815 +1,237 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <title>Ajedrez Siurot - Sistema Suizo</title>
-    
-    <link rel="icon" href="https://raw.githubusercontent.com/ManuelVS8/Torneo_Ajedrez_Siurot_SUIZO/refs/heads/main/suizo.ico" type="image/x-icon">
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#07c8dc">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    
-    <style>
-        :root {
-            /* Paleta Original con el nuevo Cian solicitado */
-            --primary: #07c8dc;        
-            --secondary: #f8fafc;      
-            --accent: #07c8dc;         
-            --accent-light: #e0faff; 
-            --success: #22c55e;        
-            --win-color: #dcfce7; 
-            --loss-color: #fee2e2; 
-            --draw-color: #f1f5f9; 
-            --round-done: #e2e8f0; 
-            --round-done-text: #64748b; 
-            --danger: #ef4444; 
-            --text: #1e293b; 
-            --light-text: #64748b; 
-            --border: #e2e8f0; 
-            --card-bg: #ffffff; 
-        }
-
-        * { 
-            box-sizing: border-box; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-            -webkit-font-smoothing: antialiased;
-        }
-
-        body { 
-            margin: 0; 
-            padding: 0; 
-            background-color: #f1f5f9; 
-            color: var(--text); 
-            padding-bottom: 90px; 
-            -webkit-tap-highlight-color: transparent; 
-            overflow-x: hidden;
-        }
-
-        /* Cabecera */
-        header { 
-            background-color: var(--primary); 
-            color: white; 
-            padding: 1.2rem 1rem; 
-            text-align: center; 
-            position: sticky; 
-            top: 0; 
-            z-index: 100; 
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15); 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-        }
-
-        .header-text { text-align: left; flex: 1; }
-        h1 { margin: 0; font-size: 1.4rem; letter-spacing: 0.5px; }
-        .subtitle { font-size: 0.85rem; opacity: 0.9; margin-top: 2px; font-weight: 400; }
-
-        #adminBtn { 
-            background: rgba(255,255,255,0.2); 
-            border: 1px solid rgba(255,255,255,0.3); 
-            color: white; 
-            border-radius: 50%; 
-            width: 44px; 
-            height: 44px; 
-            font-size: 1.3rem; 
-            cursor: pointer; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-            margin-left: 10px; 
-            flex-shrink: 0; 
-        }
-
-        #adminBtn.unlocked { 
-            background-color: var(--success); 
-            border-color: var(--success); 
-            box-shadow: 0 0 15px rgba(34, 197, 94, 0.6); 
-            transform: rotate(360deg);
-        }
-
-        /* Contenedor Principal */
-        .container { padding: 1rem; max-width: 650px; margin: 0 auto; }
-
-        .tab-content { display: none; animation: fadeIn 0.4s ease-out; }
-        .tab-content.active { display: block; }
-
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
-
-        .card { 
-            background: var(--card-bg); 
-            border-radius: 16px; 
-            padding: 1.5rem; 
-            margin-bottom: 1.2rem; 
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); 
-            position: relative; 
-            border: 1px solid var(--border); 
-        }
-
-        /* Sistema de Bloqueo Admin */
-        body.is-locked .editable-element { 
-            opacity: 0.4; 
-            pointer-events: none; 
-            user-select: none; 
-            filter: grayscale(100%);
-        }
-
-        .lock-overlay { 
-            display: none; 
-            text-align: center; 
-            color: #ef4444; 
-            padding: 12px; 
-            font-weight: 700; 
-            font-size: 0.9rem; 
-            background: #fff1f2; 
-            border-radius: 10px; 
-            margin-bottom: 15px; 
-            border: 1px dashed #fecaca; 
-        }
-
-        body.is-locked .show-lock-msg .lock-overlay { display: block; }
-
-        /* Formulario y Botones */
-        textarea { 
-            width: 100%; 
-            height: 180px; 
-            padding: 14px; 
-            border: 2px solid var(--border); 
-            border-radius: 10px; 
-            resize: vertical; 
-            font-size: 16px; 
-            background: #f8fafc; 
-            color: var(--text); 
-            outline: none;
-            transition: border-color 0.2s;
-        }
-
-        textarea:focus { border-color: var(--primary); }
-
-        button { 
-            background-color: var(--accent); 
-            color: white; 
-            border: none; 
-            padding: 14px 24px; 
-            border-radius: 10px; 
-            font-size: 1rem; 
-            cursor: pointer; 
-            width: 100%; 
-            margin-top: 12px; 
-            font-weight: 700; 
-            transition: all 0.2s ease; 
-            box-shadow: 0 4px 6px rgba(7, 200, 220, 0.2);
-        }
-
-        button:hover { opacity: 0.95; transform: translateY(-1px); }
-        button:active { transform: scale(0.97); }
-        button.export { background-color: #0f172a; box-shadow: 0 4px 6px rgba(15, 23, 42, 0.2); }
-        button.danger { background-color: var(--danger); box-shadow: 0 4px 6px rgba(239, 68, 68, 0.2); }
-        button.warning { background-color: #f59e0b; box-shadow: 0 4px 6px rgba(245, 158, 11, 0.2); }
-        button:disabled { background-color: #cbd5e1; cursor: not-allowed; box-shadow: none; color: #94a3b8; }
-
-        /* Tarjetas de Partida */
-        .match-card { 
-            display: flex; 
-            flex-direction: column; 
-            background: white; 
-            border-radius: 12px; 
-            padding: 15px; 
-            margin-bottom: 15px; 
-            border: 1px solid var(--border); 
-            border-left: 5px solid var(--primary); 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-
-        .match-header { 
-            font-size: 0.8rem; 
-            color: var(--light-text); 
-            margin-bottom: 10px; 
-            text-transform: uppercase; 
-            font-weight: 800; 
-            letter-spacing: 1px; 
-        }
-
-        .players { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .player-name { font-weight: 700; flex: 1; font-size: 1.1rem; transition: all 0.3s; border-radius: 4px; padding: 2px 6px; display: inline-block; }
-        
-        /* Colores de Resultado Aplicados */
-        .player-name.winner { background: var(--win-color); color: #15803d; }
-        .player-name.loser { background: var(--loss-color); color: #b91c1c; }
-        .player-name.draw { background: var(--draw-color); color: #475569; }
-
-        /* Info extra (Puntos/Color) */
-        .player-info { font-size: 0.7rem; color: var(--light-text); font-weight: 500; margin-left: 6px; opacity: 0.9; }
-        
-        .vs { font-size: 0.85rem; color: var(--light-text); padding: 0 12px; font-weight: 400; font-style: italic; }
-
-        .result-select { 
-            width: 100%; 
-            padding: 12px; 
-            border-radius: 8px; 
-            border: 2px solid var(--border); 
-            background: #f8fafc; 
-            font-size: 1rem; 
-            color: var(--text); 
-            outline: none; 
-            -webkit-appearance: none;
-            cursor: pointer;
-        }
-
-        /* Tabla de Ranking */
-        table { width: 100%; border-collapse: separate; border-spacing: 0; background: white; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
-        th, td { padding: 14px; text-align: left; border-bottom: 1px solid var(--border); }
-        th { background-color: #f8fafc; color: var(--light-text); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 800; }
-        .points-col { text-align: right; font-weight: 800; color: var(--primary); font-size: 1.1rem; }
-        .rank-col { width: 50px; text-align: center; color: var(--light-text); font-weight: 900; background: #f1f5f9; border-right: 1px solid var(--border); }
-        tr:last-child td { border-bottom: none; }
-        tr:nth-child(even) { background-color: #fbfcfe; }
-
-        /* Modales */
-        .modal { display: none; position: fixed; z-index: 200; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); justify-content: center; align-items: center; padding: 20px; }
-        .modal-content { background-color: white; padding: 30px; border-radius: 20px; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); animation: modalIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
-        @keyframes modalIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .modal-buttons { display: flex; gap: 12px; margin-top: 25px; }
-        #pwdModal input { width: 100%; padding: 14px; margin: 15px 0; border: 2px solid var(--border); border-radius: 10px; font-size: 18px; text-align: center; letter-spacing: 4px; }
-
-        /* Cargando y Toast */
-        #loadingOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); z-index: 300; justify-content: center; align-items: center; flex-direction: column; }
-        .spinner { border: 5px solid #f3f3f3; border-top: 5px solid var(--primary); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        /* Navegación Inferior */
-        .bottom-nav { position: fixed; bottom: 0; width: 100%; background: white; display: flex; justify-content: space-around; padding: 12px 0 25px 0; box-shadow: 0 -4px 15px rgba(0,0,0,0.08); z-index: 99; border-top: 1px solid var(--border); }
-        .nav-item { text-align: center; color: var(--light-text); font-size: 0.8rem; cursor: pointer; flex: 1; transition: all 0.2s; }
-        .nav-item.active { color: var(--primary); font-weight: 800; transform: translateY(-3px); }
-        .nav-icon { font-size: 1.5rem; display: block; margin-bottom: 4px; }
-
-        /* Selector de Rondas */
-        .round-selector { display: flex; overflow-x: auto; gap: 10px; padding: 5px 2px 15px 2px; margin-bottom: 10px; scrollbar-width: none; }
-        .round-selector::-webkit-scrollbar { display: none; }
-        .round-chip { background: #e2e8f0; color: #64748b; padding: 10px 22px; border-radius: 25px; white-space: nowrap; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; font-weight: 600; }
-        .round-chip.active { background: var(--primary); color: white; font-weight: 800; box-shadow: 0 4px 8px rgba(7, 200, 220, 0.4); border-color: rgba(255,255,255,0.2); }
-
-        #toast { visibility: hidden; min-width: 280px; background-color: #1e293b; color: #fff; text-align: center; border-radius: 12px; padding: 16px; position: fixed; z-index: 1000; left: 50%; bottom: 100px; transform: translateX(-50%); font-size: 0.95rem; box-shadow: 0 10px 20px rgba(0,0,0,0.2); }
-        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
-        @keyframes fadein { from {bottom: 70px; opacity: 0;} to {bottom: 100px; opacity: 1;} }
-        @keyframes fadeout { from {bottom: 100px; opacity: 1;} to {bottom: 70px; opacity: 0;} }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Torneo de ajedrez · CEIP Manuel Siurot</title>
+<meta name="description" content="Sigue en directo el torneo de ajedrez del CEIP Manuel Siurot: mesas, resultados y clasificación.">
+<meta name="theme-color" content="#0db4cf">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="iconos/favicon.png">
+<link rel="apple-touch-icon" href="iconos/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ajedrez Siurot">
+<link rel="stylesheet" href="estilo.css">
+<style>
+  .error-caja { text-align: center; padding: 30px 10px; }
+</style>
 </head>
+<body>
 
-<body class="is-locked" onclick="playTap()">
-
-<div id="loadingOverlay">
-    <div class="spinner"></div>
-    <div id="loadingText" style="font-weight: 700; color: var(--primary);">Sincronizando...</div>
-</div>
-
-<header>
-    <div class="header-text">
-        <h1>Ajedrez Siurot</h1>
-        <div class="subtitle">Torneo Sistema Suizo • FIDE Logic v2.1</div>
+<header class="cab">
+  <div class="cab-fila">
+    <img src="iconos/icon-192.png" alt="Logotipo del CEIP Manuel Siurot" width="52" height="52">
+    <div>
+      <h1 id="titulo">Torneo de ajedrez</h1>
+      <p>CEIP Manuel Siurot · sistema suizo</p>
     </div>
-    <button id="adminBtn" onclick="openPasswordModal(event)" title="Acceso Administrador">🔒</button>
+    <div class="cab-acc">
+      <button class="btn-ico" id="btn-recargar" aria-label="Actualizar datos"></button>
+      <button class="btn-ico" data-instalar hidden aria-label="Instalar la app"></button>
+    </div>
+  </div>
 </header>
 
-<div class="container">
-    <div id="tab-setup" class="tab-content active">
-        <div class="card show-lock-msg">
-            <h3>1. Registro de Jugadores</h3>
-            <p style="color: var(--light-text); font-size: 0.85rem; line-height: 1.4;">
-                Introduce un nombre por línea. El sistema organizará automáticamente las mesas, calculará las rondas y asignará colores (Blancas/Negras) bajo normas FIDE.
-            </p>
-            <div class="lock-overlay">🔒 MODO LECTURA: Pulsa el candado superior para editar</div>
-            <textarea id="playersInput" class="editable-element" placeholder="Ejemplo:&#10;Gari Kaspárov&#10;Magnus Carlsen&#10;Judit Polgár..."></textarea>
-            <button class="editable-element" onclick="playTap(); confirmStartTournament();">📝 Crear e Iniciar Torneo</button>
-        </div>
+<main class="contenido" id="vista" aria-live="polite">
+  <div class="cargando"><div class="peon-caja"></div>Cargando el torneo…</div>
+</main>
 
-        <div class="card show-lock-msg" id="nextRoundCard" style="display:none;">
-            <h3>Gestión de Emparejamientos</h3>
-            <div class="lock-overlay">🔒 ACCESO RESTRINGIDO</div>
-            <button id="nextRoundBtn" class="editable-element warning" onclick="playTap(); confirmNextRound();">⏭️ Generar Nueva Ronda</button>
-            <p style="font-size:0.75rem; color:var(--light-text); margin-top:12px; text-align:center; font-weight:500;">
-                Solo genera la ronda cuando todos los resultados actuales estén anotados.
-            </p>
-        </div>
+<nav class="nav" aria-label="Secciones">
+  <button data-tab="mesas"></button>
+  <button data-tab="clasif"></button>
+  <button data-tab="jugadores"></button>
+  <button data-tab="info"></button>
+</nav>
 
-        <div class="card show-lock-msg" id="resetCard" style="display:none;">
-            <h3>Zona Crítica</h3>
-            <div class="lock-overlay">🔒 ÁREA PROTEGIDA</div>
-            <button class="editable-element danger" onclick="playTap(); confirmResetTournament();">⚠️ Borrar Todo el Torneo</button>
-        </div>
-    </div>
-
-    <div id="tab-rounds" class="tab-content">
-        <div class="round-selector" id="roundSelector"></div>
-        <div id="matchesContainer"></div>
-        <div class="card show-lock-msg" style="padding: 0; background: transparent; box-shadow: none; border:none; margin-top: 20px;">
-             <div class="lock-overlay">🔒 Desbloquea para guardar resultados</div>
-             <button id="saveBtn" class="editable-element" onclick="playTap(); syncToGoogle()" style="background-color: #1e293b; font-size: 1.1rem; padding: 18px;">💾 Guardar Cambios en la Nube</button>
-        </div>
-    </div>
-
-    <div id="tab-ranking" class="tab-content">
-        <div class="card" style="padding: 1rem 0.5rem;">
-            <h3 style="padding-left: 1rem;">Clasificación Provisional</h3>
-            <table id="rankingTable">
-                <thead>
-                    <tr>
-                        <th class="rank-col">#</th>
-                        <th>Nombre del Jugador</th>
-                        <th class="points-col">Pts</th>
-                        <th style="text-align:right">BH</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-            <p style="font-size: 0.7rem; color: var(--light-text); padding: 15px; margin: 0;">
-                * Criterio: Puntos totales > Buchholz (Suma de puntos de oponentes).
-            </p>
-        </div>
-    </div>
-
-    <div id="tab-export" class="tab-content">
-        <div class="card">
-            <h3>Documentos Oficiales</h3>
-            <p style="color: var(--light-text); margin-bottom: 20px;">Descarga actas y resultados en formato PDF de alta calidad.</p>
-            <button class="export" onclick="playTap(); downloadPDF()">⬇️ Descargar Clasificación General</button>
-            <button class="export" style="background-color: var(--primary); margin-top: 15px;" onclick="playTap(); downloadMatchesPDF()">📅 Descargar Acta de Ronda</button>
-        </div>
-        <div class="card">
-            <h3>Estado del Sistema</h3>
-            <div style="display: flex; justify-content: space-between; font-size: 0.9rem;">
-                <span>Jugadores:</span> <strong id="statsPlayers">0</strong>
-            </div>
-            <hr style="border: 0; border-top: 1px solid var(--border); margin: 10px 0;">
-            <div style="display: flex; justify-content: space-between; font-size: 0.9rem;">
-                <span>Rondas Máximas:</span> <strong id="statsRounds">0</strong>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="bottom-nav">
-    <div class="nav-item active" onclick="playTap(); switchTab('tab-setup', this)"><span class="nav-icon">⚙️</span>Config</div>
-    <div class="nav-item" onclick="playTap(); switchTab('tab-rounds', this)"><span class="nav-icon">📅</span>Rondas</div>
-    <div class="nav-item" onclick="playTap(); switchTab('tab-ranking', this)"><span class="nav-icon">🏆</span>Ranking</div>
-    <div class="nav-item" onclick="playTap(); switchTab('tab-export', this)"><span class="nav-icon">📄</span>PDF</div>
-</div>
-
-<div id="confirmModal" class="modal">
-    <div class="modal-content">
-        <h3 id="confirmTitle" style="color: var(--text);"></h3>
-        <p id="confirmMessage" style="color: var(--light-text); font-size: 0.95rem; margin-bottom: 20px;"></p>
-        <div class="modal-buttons">
-            <button style="background: #e2e8f0; color: #1e293b; box-shadow: none;" onclick="playTap(); closeConfirmModal(false)">Cancelar</button>
-            <button id="confirmActionBtn" onclick="playTap(); closeConfirmModal(true)">Confirmar</button>
-        </div>
-    </div>
-</div>
-
-<div id="pwdModal" class="modal">
-    <div class="modal-content">
-        <h3 style="margin-top:0;">🛡️ Acceso Admin</h3>
-        <p style="font-size: 0.85rem; color: var(--light-text);">Introduce la clave maestra</p>
-        <input type="password" id="pwdInput" placeholder="••••">
-        <button onclick="playTap(); checkPassword()">Validar</button>
-        <button style="background: transparent; color: var(--light-text); box-shadow: none;" onclick="playTap(); closePasswordModal()">Volver</button>
-    </div>
-</div>
-
-<div id="toast"></div>
-
+<script src="comun.js"></script>
 <script>
-    // --- LÓGICA DE AUDIO (TAP) ---
-    const tapAudio = new Audio("https://github.com/ManuelVS8/Efectos_audio/blob/37b3eb2da9c15c04dfb71dfe1be60f088ea3cdfc/Tap.mp3?raw=true");
-    function playTap() {
-        tapAudio.currentTime = 0;
-        tapAudio.play().catch(() => {});
+(function () {
+  'use strict';
+  const { $, $$, esc, I } = Siurot;
+  const S = Siurot;
+
+  let db = null, tab = 'mesas', ronda = 0, busca = '', sigue = 0, offline = false, ultimaCarga = 0, primera = true;
+  try { sigue = parseInt(localStorage.getItem('siurot_sigue') || '0', 10) || 0; } catch (e) { sigue = 0; }
+
+  const norm = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const por = () => S.jugadoresPorId(db);
+
+  // iconos fijos
+  $('#btn-recargar').innerHTML = I.recargar;
+  $('[data-instalar]').innerHTML = I.instalar;
+  const etiquetas = { mesas: ['Mesas', I.mesas], clasif: ['Clasificación', I.podio], jugadores: ['Jugadores', I.gente], info: ['Cómo va', I.info] };
+  $$('.nav button').forEach((b) => { const e = etiquetas[b.dataset.tab]; b.innerHTML = e[1] + '<span>' + e[0] + '</span>'; });
+  $('.peon-caja').innerHTML = I.peon.replace('<svg', '<svg class="peon"');
+
+  // ---------- Vistas ----------
+  function aviso() {
+    const lineas = [];
+    let cls = '', icono = I.campana, titulo = '';
+    if (db.finished) {
+      const ganador = S.ordenados(db)[0];
+      cls = 'fin'; icono = I.corona; titulo = '¡Torneo terminado!';
+      lineas.push(`Campeón o campeona: <b>${esc(ganador.name)}</b> con ${S.pts(ganador.points)} puntos.`);
+    } else if (db.started) {
+      const r = db.currentRound;
+      if (db.roundDone) {
+        titulo = `Próxima ronda: la ${r + 1}`;
+        lineas.push(db.fechas[r + 1] ? `Se juega el <b>${S.fecha(db.fechas[r + 1])}</b>.` : 'La fecha se avisará pronto.');
+      } else {
+        titulo = `Ronda ${r} en juego`;
+        if (db.fechas[r]) lineas.push(`Día de juego: <b>${S.fecha(db.fechas[r])}</b>.`);
+        if (db.fechas[r + 1] && r < db.totalRondas) lineas.push(`Siguiente ronda: ${S.fecha(db.fechas[r + 1])}.`);
+      }
     }
+    if (db.aviso) lineas.push(esc(db.aviso));
+    if (!titulo && !lineas.length) return '';
+    return `<div class="aviso ${cls}">${icono}<div>${titulo ? `<b>${titulo}</b>` : ''}${lineas.map((l) => `<span>${l}</span>`).join('')}</div></div>`;
+  }
 
-    // --- VARIABLES DE ESTADO Y CONFIGURACIÓN ---
-    const ADMIN_PASS = "bejherro";
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyc0KH3TgBhtkDVF2MZ6c7JKMyM3bsb8POxMm7Up0CaA1FtxV5pnfSZ4jQQGsT8T2bYxQ/exec";
-    
-    let isAdmin = false;
-    let appData = { 
-        players: [], 
-        matches: [], 
-        started: false, 
-        currentRound: 0, 
-        totalRondas: 0 
-    };
-    let pendingAction = null;
+  function vistaMesas() {
+    if (!db.started) return vacio('El torneo aún no ha empezado', 'Cuando salgan las primeras mesas las verás aquí.');
+    if (!ronda || ronda > db.currentRound) ronda = db.currentRound;
+    const p = por();
+    let ms = S.partidasRonda(db, ronda);
+    const q = norm(busca.trim());
+    if (q) ms = ms.filter((m) => [m.player1Id, m.player2Id].some((id) => p[id] && norm(p[id].name).includes(q)));
+    let h = aviso();
+    if (sigue && p[sigue]) {
+      const m = S.partidasRonda(db, ronda).find((x) => x.player1Id === sigue || x.player2Id === sigue);
+      if (m) {
+        if (m.player2Id === -1) h += `<div class="mi-partida"><b>${esc(p[sigue].name)}</b><span>Esta ronda descansas y sumas 1 punto.</span></div>`;
+        else {
+          const blancas = m.player1Id === sigue, rival = p[blancas ? m.player2Id : m.player1Id];
+          h += `<div class="mi-partida"><b>Mesa ${m.table}</b><span>${esc(p[sigue].name)} juega con ${blancas ? 'blancas' : 'negras'} contra ${esc(rival ? rival.name : '?')}.</span></div>`;
+        }
+      }
+    }
+    h += S.pasosHtml(db, ronda);
+    h += `<div class="buscar">${I.lupa}<label class="sr" for="q">Buscar tu nombre</label><input id="q" type="search" placeholder="Busca tu nombre para ver tu mesa" value="${esc(busca)}" autocomplete="off"></div>`;
+    if (!ms.length) h += `<div class="vacio"><b>Nadie con ese nombre</b>Prueba con otra parte del nombre.</div>`;
+    else h += `<div class="lista-mesas">${ms.map((m) => S.mesaHtml(m, p, { sigue })).join('')}</div>`;
+    h += `<p class="hora-act">Actualizado ${S.hace(db.updated || ultimaCarga)}${offline ? ' · sin conexión, mostrando la última copia' : ''}</p>`;
+    return h;
+  }
 
-    document.addEventListener('DOMContentLoaded', () => {
-        fetchFromGoogle();
-        document.getElementById('pwdInput').addEventListener('keypress', e => { 
-            if (e.key === 'Enter') checkPassword(); 
-        });
+  function vistaClasif() {
+    if (!db.started) return vacio('Todavía no hay clasificación', 'Aparecerá cuando se jueguen las primeras partidas.');
+    return aviso() + (db.finished ? '' : `<p class="nota" style="margin:0 4px 14px">Clasificación provisional tras ${db.currentRound - (db.roundDone ? 0 : 1)} de ${db.totalRondas} rondas.</p>`) + S.clasificacionHtml(db, { sigue });
+  }
+
+  function vistaJugadores() {
+    if (!db.players.length) return vacio('No hay jugadores todavía', 'Cuando empiece el torneo aparecerán aquí.');
+    const q = norm(busca.trim());
+    let lista = db.players.slice().sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    if (q) lista = lista.filter((p) => norm(p.name).includes(q));
+    let h = `<div class="buscar">${I.lupa}<label class="sr" for="q">Buscar jugador</label><input id="q" type="search" placeholder="Buscar jugador" value="${esc(busca)}" autocomplete="off"></div>`;
+    if (!lista.length) return h + `<div class="vacio"><b>Nadie con ese nombre</b>Prueba con otra parte del nombre.</div>`;
+    let letra = '';
+    lista.forEach((p) => {
+      const l = norm(p.name).charAt(0).toUpperCase();
+      if (l !== letra) { letra = l; h += `<div class="az"><h3>${l}</h3></div>`; }
+      h += `<button class="fila-j ${sigue === p.id ? 'yo' : ''} ${p.retired ? 'ret' : ''}" data-act="jugador" data-id="${p.id}"><span class="pos num">${p.pos}</span><span class="n">${esc(p.name)}${p.retired ? '<small>retirado</small>' : ''}</span><span class="p num">${S.pts(p.points)}</span></button>`;
     });
+    return h + `<p class="nota">El número de la izquierda es el puesto en la clasificación. Toca un nombre para ver sus partidas.</p>`;
+  }
 
-    // --- COMUNICACIÓN CON EL SERVIDOR (APPS SCRIPT) ---
-    async function fetchFromGoogle() {
-        showLoading("Consultando Nube...");
-        try {
-            const res = await fetch(`${SCRIPT_URL}?action=read&t=${Date.now()}`);
-            if (!res.ok) throw new Error("Error en respuesta");
-            const data = await res.json();
-            if (data.db) {
-                appData = data.db;
-                // Si el torneo está iniciado pero no hay ronda seleccionada, ir a la última
-                if (appData.started && appData.currentRound === 0) {
-                    const rounds = [...new Set(appData.matches.map(m => m.round))];
-                    if (rounds.length > 0) appData.currentRound = Math.max(...rounds);
-                }
-            }
-            renderUI();
-        } catch (e) { 
-            showToast("❌ Sin conexión o error de servidor"); 
-            console.error(e); 
-        } finally { 
-            hideLoading(); 
-        }
-    }
+  function vistaInfo() {
+    const seg = sigue && db && por()[sigue] ? `<p>Estás siguiendo a <b>${esc(por()[sigue].name)}</b>. <button class="btn sec" id="dejar" style="margin-top:8px">Dejar de seguir</button></p>` : '<p>Toca el nombre de un jugador y pulsa «Seguir» para ver siempre su mesa arriba. Solo se guarda en este dispositivo.</p>';
+    return `
+      <section class="panel"><h2>Cómo funciona</h2><ul>
+        <li>Ganar vale 1 punto, empatar (tablas) ½ y perder 0.</li>
+        <li>En cada ronda juegas contra alguien con casi los mismos puntos que tú.</li>
+        <li>No se repiten rivales.</li>
+        <li>Si somos un número impar, alguien descansa esa ronda y suma 1 punto. Nadie descansa dos veces.</li>
+      </ul></section>
+      <section class="panel"><h2>Blancas y negras</h2>
+        <div class="leyenda">${S.chip('B')} Blancas: salen primero</div>
+        <div class="leyenda">${S.chip('N')} Negras</div>
+        <p>Se reparten lo más justo posible y nadie juega tres veces seguidas con el mismo color.</p></section>
+      <section class="panel"><h2>Si hay empate</h2>
+        <p>Primero gana quien tiene más puntos. Si siguen empatados, se mira el <b>Buchholz</b>: la suma de los puntos de tus rivales. Quien se ha enfrentado a rivales más fuertes queda por delante.</p></section>
+      <section class="panel"><h2>Tu jugador</h2>${seg}</section>
+      <section class="panel"><h2>Instalar en el móvil</h2>
+        <p>Añade el torneo a tu pantalla de inicio y ábrelo como una app.</p>
+        <button class="btn" data-instalar hidden>${I.instalar} Instalar la app</button>
+        <p data-ios hidden>En iPhone: pulsa el botón Compartir de Safari y elige <b>Añadir a pantalla de inicio</b>.</p>
+      </section>`;
+  }
 
-    async function sendGoogleAction(action, params = {}) {
-        showLoading("Actualizando...");
-        try {
-            const res = await fetch(SCRIPT_URL, {
-                method: 'POST',
-                body: JSON.stringify({ action: action, ...params })
-            });
-            // Como no usamos no-cors, podemos leer la respuesta
-            const result = await res.json();
-            if (result.status === 'error') {
-                showToast("❌ " + (result.message || "Error"));
-            } else {
-                showToast("✅ Éxito");
-            }
-            setTimeout(fetchFromGoogle, 1000); // Recargar datos
-        } catch (e) { 
-            showToast("Error de envío"); 
-            hideLoading();
-        }
-    }
+  function vacio(t, s) { return `<div class="vacio">${I.peon}<b>${t}</b>${s}</div>`; }
 
-    async function syncToGoogle() {
-        if (!isAdmin) return;
-        showLoading("Guardando Cambios...");
-        try {
-            const response = await fetch(SCRIPT_URL, {
-                method: 'POST',
-                body: JSON.stringify({ action: 'sync', matches: appData.matches })
-            });
-            const result = await response.json();
-            showToast("✅ Resultados guardados con éxito");
-            setTimeout(fetchFromGoogle, 1000); 
-        } catch (e) { 
-            showToast("⚠️ Fallo al guardar."); 
-            console.error(e);
-        } finally { 
-            hideLoading(); 
-        }
-    }
+  function pintar() {
+    $('#titulo').textContent = db ? db.nombre : 'Torneo de ajedrez';
+    $$('.nav button').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
+    const v = $('#vista');
+    if (!db) return;
+    const foco = document.activeElement && document.activeElement.id === 'q';
+    const pos = foco ? document.activeElement.selectionStart : 0;
+    v.innerHTML = ({ mesas: vistaMesas, clasif: vistaClasif, jugadores: vistaJugadores, info: vistaInfo })[tab]();
+    S.pintarInstalar();
+    if (foco) { const q = $('#q'); if (q) { q.focus(); q.setSelectionRange(pos, pos); } }
+  }
 
-    // --- RENDERIZADO DINÁMICO DE LA INTERFAZ ---
-    function renderUI() {
-        // Stats
-        document.getElementById('statsPlayers').innerText = appData.players.length;
-        document.getElementById('statsRounds').innerText = appData.totalRondas || 0;
+  function irA(t, desdeAtras) {
+    if (t === tab) return;
+    tab = t; busca = '';
+    if (!desdeAtras) S.nav.pestana(t);
+    pintar(); window.scrollTo(0, 0);
+  }
 
-        // Panel Config
-        document.getElementById('playersInput').value = appData.players.length ? appData.players.map(p=>p.name).join('\n') : "";
-        document.getElementById('resetCard').style.display = appData.started ? "block" : "none";
-        document.getElementById('nextRoundCard').style.display = appData.started ? "block" : "none";
-        
-        const nextBtn = document.getElementById('nextRoundBtn');
-        if (nextBtn) {
-            const maxR = appData.matches.length > 0 ? Math.max(...appData.matches.map(m => m.round)) : 0;
-            const nextNum = maxR + 1;
-            const total = appData.totalRondas || "?";
-            
-            if (appData.totalRondas > 0 && nextNum > appData.totalRondas) {
-                nextBtn.disabled = true;
-                nextBtn.innerText = "🏆 Torneo Finalizado";
-            } else {
-                nextBtn.disabled = false;
-                nextBtn.innerText = `⏭️ Generar Ronda ${nextNum}/${total}`;
-            }
-        }
-        
-        if (appData.started) {
-            renderRoundSelector();
-            renderMatches(appData.currentRound);
-            renderRanking();
-        } else {
-            document.getElementById('roundSelector').innerHTML = "";
-            document.getElementById('matchesContainer').innerHTML = `
-                <div class="card" style="text-align:center; padding: 40px 20px;">
-                    <span style="font-size: 3rem;">♟️</span>
-                    <h4 style="margin: 15px 0 5px 0; color: var(--light-text);">El torneo aún no ha comenzado</h4>
-                    <p style="font-size: 0.8rem; color: var(--light-text);">Ve a la pestaña Configuración para inscribir jugadores.</p>
-                </div>`;
-        }
-    }
+  // ---------- Ficha de jugador ----------
+  function abrirFicha(id) {
+    const p = por()[id]; if (!p) return;
+    const siguiendo = sigue === id;
+    const caja = S.hoja(S.fichaHtml(db, p, `<div class="btns"><button class="btn ${siguiendo ? 'sec' : 'cinta'}" data-r="seguir">${siguiendo ? 'Dejar de seguir' : 'Seguir a este jugador'}</button><button class="btn sec" data-r="x">Cerrar</button></div>`));
+    caja.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-r]'); if (!b) return;
+      if (b.dataset.r === 'seguir') {
+        sigue = siguiendo ? 0 : id;
+        try { localStorage.setItem('siurot_sigue', String(sigue)); } catch (x) { /* ignorar */ }
+        S.toast(siguiendo ? 'Ya no sigues a ' + p.name : 'Siguiendo a ' + p.name, 'ok');
+        pintar();
+      }
+      S.cerrarHoja();
+    });
+  }
 
-    function renderRoundSelector() {
-        const container = document.getElementById('roundSelector');
-        container.innerHTML = "";
-        const rounds = [...new Set(appData.matches.map(m=>m.round))].sort((a,b)=>a-b);
-        if (rounds.length === 0) return;
+  // ---------- Eventos ----------
+  document.addEventListener('click', (e) => {
+    const nav = e.target.closest('.nav [data-tab]'); if (nav) { irA(nav.dataset.tab); return; }
+    const a = e.target.closest('[data-act="jugador"]'); if (a && a.dataset.id) { abrirFicha(parseInt(a.dataset.id, 10)); return; }
+    const r = e.target.closest('.paso[data-ronda]'); if (r && !r.disabled) { ronda = parseInt(r.dataset.ronda, 10); pintar(); return; }
+    if (e.target.closest('#dejar')) { sigue = 0; try { localStorage.removeItem('siurot_sigue'); } catch (x) { /* */ } pintar(); S.toast('Ya no sigues a nadie'); return; }
+    if (e.target.closest('#btn-recargar')) cargar(false);
+    if (e.target.closest('#reintentar')) cargar(false);
+  });
+  document.addEventListener('input', (e) => { if (e.target.id === 'q') { busca = e.target.value; pintar(); } });
 
-        rounds.forEach(r => {
-            const chip = document.createElement('div');
-            chip.className = `round-chip ${r===appData.currentRound ? 'active' : ''}`;
-            chip.innerText = `Ronda ${r}`;
-            chip.onclick = (e) => { 
-                e.stopPropagation(); 
-                playTap(); 
-                appData.currentRound = r; 
-                renderUI(); 
-            };
-            container.appendChild(chip);
-        });
-    }
+  // ---------- Carga de datos ----------
+  let cargando = false;
+  async function cargar(silencio) {
+    if (cargando) return; cargando = true;
+    const btn = $('#btn-recargar'); btn.disabled = true;
+    try {
+      const nuevo = await S.api.leer();
+      db = nuevo; offline = false; ultimaCarga = Date.now(); S.cache.guardar(db);
+      if (primera) { primera = false; if (db.finished) { tab = 'clasif'; history.replaceState({ tab: tab }, ''); if (!sessionStorage.getItem('confeti')) { sessionStorage.setItem('confeti', '1'); S.confeti(); } } }
+      pintar();
+      if (!silencio) S.toast('Datos al día', 'ok');
+    } catch (e) {
+      if (db) { offline = true; pintar(); if (!silencio) S.toast(e.message, 'mal'); }
+      else $('#vista').innerHTML = `<div class="error-caja"><b>No se pudo cargar el torneo</b><p>${esc(e.message)}</p><button class="btn" id="reintentar" style="max-width:260px;margin:0 auto">Reintentar</button></div>`;
+    } finally { cargando = false; btn.disabled = false; }
+  }
 
-    function renderMatches(r) {
-        const container = document.getElementById('matchesContainer');
-        container.innerHTML = "";
-        const roundMatches = appData.matches.filter(m=>m.round===r);
-        
-        if(roundMatches.length === 0 && appData.started) {
-            container.innerHTML = "<div class='card'>No hay emparejamientos en esta ronda.</div>";
-            return;
-        }
-
-        roundMatches.forEach((m, idx) => {
-            const p1 = appData.players.find(p=>p.id===m.player1Id);
-            const p2 = appData.players.find(p=>p.id===m.player2Id);
-            const div = document.createElement('div');
-            div.className = 'match-card';
-
-            // Calcular balance de color para mostrar
-            const bal1 = getColorBalance(p1 ? p1.colorHistory : "");
-            const bal2 = getColorBalance(p2 ? p2.colorHistory : "");
-
-            // Lógica de BYE (Descanso)
-            if (m.player2Id === -1) {
-                 div.innerHTML = `
-                    <div class="match-header">Mesa ${m.table || idx+1} • DESCANSO</div>
-                    <div class="players">
-                        <div class="player-name">${p1.name} <span class="player-info">${p1.points.toFixed(1)} pts</span></div>
-                        <div class="vs">RECIBE</div>
-                        <div class="player-name" style="text-align:right">1.0 PT</div>
-                    </div>
-                    <div style="text-align:center; font-size:0.75rem; color:var(--success); font-weight:700; background: var(--win-color); padding: 5px; border-radius: 5px;">
-                        Punto automático por BYE
-                    </div>`;
-            } else {
-                // Determinar clases de color de resultado
-                let cls1 = "", cls2 = "";
-                if (m.result === "1-0") { cls1 = "winner"; cls2 = "loser"; }
-                else if (m.result === "0-1") { cls1 = "loser"; cls2 = "winner"; }
-                else if (m.result === "1/2-1/2") { cls1 = cls2 = "draw"; }
-
-                 div.innerHTML = `
-                    <div class="match-header">Mesa ${m.table || idx+1}</div>
-                    <div class="players">
-                        <div class="player-name ${cls1}">${p1 ? p1.name : 'Desconocido'} <span class="player-info">${p1.points.toFixed(1)} pts (${bal1})</span></div>
-                        <div class="vs">vs</div>
-                        <div class="player-name ${cls2}" style="text-align:right">${p2 ? p2.name : 'Desconocido'} <span class="player-info">${p2.points.toFixed(1)} pts (${bal2})</span></div>
-                    </div>
-                    <select class="result-select editable-element" onchange="playTap(); updateMatchLocal('${m.id}', this.value)" onclick="event.stopPropagation()">
-                        <option value="" ${!m.result?'selected':''}>⏳ Pendiente...</option>
-                        <option value="1-0" ${m.result==='1-0'?'selected':''}>Victoria Blancas (1 - 0)</option>
-                        <option value="0-1" ${m.result==='0-1'?'selected':''}>Victoria Negras (0 - 1)</option>
-                        <option value="1/2-1/2" ${m.result==='1/2-1/2'?'selected':''}>Tablas (½ - ½)</option>
-                    </select>`;
-            }
-            container.appendChild(div);
-        });
-    }
-
-    function getColorBalance(history) {
-        if(!history) return "0";
-        let b=0;
-        for(let c of history) { if(c==='B') b++; else if(c==='N') b--; }
-        return (b > 0 ? "+" : "") + b;
-    }
-
-    function renderRanking() {
-        const tbody = document.querySelector('#rankingTable tbody');
-        tbody.innerHTML = "";
-        const sorted = [...appData.players].sort((a,b) => (b.points - a.points) || (b.buchholz - a.buchholz));
-        sorted.forEach((p, i) => {
-            tbody.innerHTML += `
-                <tr>
-                    <td class="rank-col">${i+1}</td>
-                    <td style="font-weight:600;">${p.name}</td>
-                    <td class="points-col">${p.points}</td>
-                    <td style="text-align:right; color: var(--light-text);">${p.buchholz.toFixed(1)}</td>
-                </tr>`;
-        });
-    }
-
-    function updateMatchLocal(id, res) { 
-        const m = appData.matches.find(x=>x.id===id); 
-        if (m) m.result = res; 
-        renderUI();
-    }
-
-    // --- CONTROL DE MODALES Y SEGURIDAD ---
-    function openConfirmModal(t, m, a) { 
-        document.getElementById('confirmTitle').innerText = t; 
-        document.getElementById('confirmMessage').innerText = m; 
-        pendingAction = a; 
-        document.getElementById('confirmModal').style.display = "flex"; 
-    }
-
-    function confirmStartTournament() { 
-        if(!isAdmin) return; 
-        openConfirmModal("🚀 Iniciar Torneo", "¿Estás seguro? Se borrarán datos previos y se generará la Ronda 1 con los nombres listados.", "create"); 
-    }
-    
-    function confirmNextRound() {
-        if(!isAdmin) return;
-        const currentMatches = appData.matches.filter(m => m.round === appData.currentRound);
-        const pending = currentMatches.some(m => !m.result && m.player2Id !== -1);
-        if (pending) {
-            showToast("⚠️ Error: Hay resultados sin anotar en la ronda actual");
-            return;
-        }
-        openConfirmModal("⏭️ Siguiente Ronda", "¿Generar nuevos emparejamientos basados en la clasificación actual?", "nextRound");
-    }
-
-    function confirmResetTournament() { 
-        if(!isAdmin) return; 
-        openConfirmModal("🛑 REINICIO TOTAL", "Esta acción eliminará todos los jugadores y resultados de la base de datos. ¿Proceder?", "reset"); 
-    }
-
-    function closeConfirmModal(confirm) { 
-        document.getElementById('confirmModal').style.display = "none"; 
-        if (confirm) {
-            if (pendingAction === 'create') {
-                let names = document.getElementById('playersInput').value.split('\n').filter(x => x.trim().length > 0);
-                if (names.length < 2) { showToast("Necesitas al menos 2 jugadores"); return; }
-                sendGoogleAction('create', { players: names });
-            } else if (pendingAction === 'nextRound') {
-                sendGoogleAction('nextRound');
-            } else if (pendingAction === 'reset') {
-                sendGoogleAction('reset');
-            }
-        }
-    }
-
-    // --- ACCESO ADMINISTRADOR ---
-    function openPasswordModal(e) { 
-        e.stopPropagation(); 
-        playTap(); 
-        if(isAdmin) { 
-            isAdmin = false; 
-            updateAdminMode(); 
-            showToast("🔒 Modo Lectura Activado");
-        } else {
-            document.getElementById('pwdModal').style.display = "flex"; 
-            document.getElementById('pwdInput').focus();
-        }
-    }
-
-    function closePasswordModal() { document.getElementById('pwdModal').style.display = "none"; }
-    
-    function checkPassword() { 
-        const val = document.getElementById('pwdInput').value;
-        if(val === ADMIN_PASS) { 
-            isAdmin = true; 
-            closePasswordModal(); 
-            updateAdminMode(); 
-            showToast("🔓 Acceso Administrador Concedido"); 
-        } else { 
-            showToast("❌ Contraseña incorrecta"); 
-        } 
-        document.getElementById('pwdInput').value = ""; 
-    }
-
-    function updateAdminMode() { 
-        const b = document.getElementById('adminBtn'); 
-        b.innerHTML = isAdmin ? "🔓" : "🔒"; 
-        b.className = isAdmin ? "unlocked" : ""; 
-        document.body.className = isAdmin ? "" : "is-locked"; 
-    }
-
-    // --- UTILIDADES DE INTERFAZ ---
-    function showLoading(t) { 
-        document.getElementById('loadingText').innerText = t; 
-        document.getElementById('loadingOverlay').style.display = "flex"; 
-    }
-    
-    function hideLoading() { document.getElementById('loadingOverlay').style.display = "none"; }
-    
-    function showToast(m) { 
-        const x = document.getElementById("toast"); 
-        x.innerText = m; 
-        x.className = "show"; 
-        setTimeout(() => { x.className = x.className.replace("show", ""); }, 3000); 
-    }
-
-    function switchTab(id, el) { 
-        playTap();
-        document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active')); 
-        document.getElementById(id).classList.add('active');
-        document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active')); 
-        el.classList.add('active');
-        if(id === 'tab-ranking') renderRanking();
-    }
-
-    // --- EXPORTACIÓN PDF PROFESIONAL ---
-    function downloadPDF() {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        
-        doc.setFillColor(7, 200, 220);
-        doc.rect(0, 0, 210, 30, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(22);
-        doc.text("Clasificación Final - Torneo Siurot", 15, 20);
-        
-        doc.setTextColor(30, 41, 59);
-        doc.setFontSize(10);
-        doc.text(`Fecha de emisión: ${new Date().toLocaleString()}`, 15, 40);
-        
-        let y = 55;
-        doc.setFontSize(12);
-        doc.setFont(undefined, 'bold');
-        doc.text("Pos.", 15, y);
-        doc.text("Nombre del Jugador", 30, y);
-        doc.text("Pts", 160, y);
-        doc.text("BH", 185, y);
-        
-        y += 5;
-        doc.setDrawColor(226, 232, 240);
-        doc.line(15, y, 195, y);
-        
-        y += 10;
-        doc.setFont(undefined, 'normal');
-        const sorted = [...appData.players].sort((a,b) => (b.points - a.points) || (b.buchholz - a.buchholz));
-        
-        sorted.forEach((p, i) => {
-            if(y > 280) { doc.addPage(); y = 20; }
-            doc.text(`${i+1}`, 15, y);
-            doc.text(`${p.name}`, 30, y);
-            doc.text(`${p.points}`, 160, y);
-            doc.text(`${p.buchholz.toFixed(1)}`, 185, y);
-            y += 9;
-        });
-
-        doc.save(`Ranking_Siurot_${Date.now()}.pdf`);
-    }
-    
-    function downloadMatchesPDF() {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        
-        doc.setFillColor(15, 23, 42);
-        doc.rect(0, 0, 210, 30, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(20);
-        doc.text(`Emparejamientos - Ronda ${appData.currentRound}`, 15, 20);
-        
-        doc.setTextColor(30, 41, 59);
-        let y = 45;
-        const roundMatches = appData.matches.filter(m => m.round === appData.currentRound);
-        
-        roundMatches.forEach(m => {
-            if(y > 280) { doc.addPage(); y = 20; }
-            const p1 = appData.players.find(p=>p.id===m.player1Id);
-            const p2 = appData.players.find(p=>p.id===m.player2Id);
-            const p1Name = p1 ? p1.name : "?";
-            const p2Name = p2 ? p2.name : (m.player2Id === -1 ? "--- DESCANSO ---" : "?");
-            
-            doc.setFont(undefined, 'bold');
-            doc.text(`Mesa ${m.table || '?'}:`, 15, y);
-            doc.setFont(undefined, 'normal');
-            doc.text(`${p1Name} vs ${p2Name}`, 40, y);
-            y += 12;
-        });
-
-        doc.save(`Ronda_${appData.currentRound}_Emparejamientos.pdf`);
-    }
-
-    // --- REGISTRO PWA (SERVICE WORKER) ---
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-          .then(reg => console.log('✅ Service Worker activo para Ajedrez Siurot'))
-          .catch(err => console.error('❌ Error al registrar el Service Worker', err));
-      });
-    }
+  // primero lo último que se vio (sin conexión), luego datos frescos
+  const guardado = S.cache.leer();
+  if (guardado && guardado.db) { db = guardado.db; offline = true; ultimaCarga = guardado.t; if (db.finished) tab = 'clasif'; pintar(); }
+  S.nav.iniciar(tab, (t, atras) => irA(t, atras));
+  cargar(true);
+  setInterval(() => { if (!document.hidden) cargar(true); }, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - ultimaCarga > 30000) cargar(true); });
+})();
 </script>
 </body>
 </html>

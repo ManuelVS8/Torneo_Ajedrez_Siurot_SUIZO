@@ -1,74 +1,40 @@
-const CACHE_NAME = 'ajedrez-siurot-suizo-v4';
-const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './manifest.json',
-  './sw.js', // Añadido por seguridad
-  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
-  'https://raw.githubusercontent.com/ManuelVS8/Torneo_Ajedrez_Siurot_SUIZO/refs/heads/main/suizo.ico',
-  // URL CORREGIDA (Raw directo):
-  'https://raw.githubusercontent.com/ManuelVS8/Efectos_audio/37b3eb2da9c15c04dfb71dfe1be60f088ea3cdfc/Tap.mp3'
+/* Service worker · Ajedrez Siurot
+   - Archivos de la propia app: primero la red (así los cambios llegan solos) y, sin conexión, la última copia.
+   - Las peticiones al Script de Google NUNCA pasan por aquí: los resultados siempre van a la red. */
+const CACHE = 'ajedrez-siurot-torneo-1';
+const BASICOS = [
+  './', './index.html', './admin.html', './estilo.css', './comun.js',
+  './manifest.json', './manifest-admin.json',
+  './iconos/icon-192.png', './iconos/icon-512.png', './iconos/icon-180.png', './iconos/icon-maskable-512.png', './iconos/favicon.png'
 ];
 
-// INSTALACIÓN
-self.addEventListener('install', event => {
-  self.skipWaiting(); // Fuerza la activación inmediata
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('✅ Cacheando recursos Ajedrez Suizo');
-        return cache.addAll(ASSETS_TO_CACHE);
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => Promise.all(BASICOS.map((u) => c.add(u).catch(() => { }))))
+      .then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== location.origin) return;   // Google Script y demás: directo a la red
+  e.respondWith(
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok) { const copia = res.clone(); caches.open(CACHE).then((c) => c.put(req, copia)); }
+        return res;
       })
-      .catch(err => console.error('Error al cachear:', err))
-  );
-});
-
-// ACTIVACIÓN: Limpieza de versiones antiguas
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('Limpiando caché antigua:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
-});
-
-// FETCH: Estrategia Inteligente
-self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
-
-  // EXCEPCIÓN CRÍTICA: Google Script siempre va a la RED
-  // para que los resultados del torneo estén actualizados.
-  if (url.hostname.includes('script.google')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-
-  // ESTRATEGIA: Cache First, Network Fallback
-  event.respondWith(
-    caches.match(event.request).then(response => {
-      // Si está en caché, lo servimos
-      if (response) {
-        return response;
-      }
-      
-      // Si no, vamos a la red
-      return fetch(event.request).then(networkResponse => {
-        // Opcional: guardar en caché lo nuevo que encontremos
-        if (networkResponse && networkResponse.status === 200) {
-           const responseClone = networkResponse.clone();
-           caches.open(CACHE_NAME).then(cache => {
-             cache.put(event.request, responseClone);
-           });
-        }
-        return networkResponse;
-      });
-    })
+      .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match(url.pathname.endsWith('admin.html') ? './admin.html' : './index.html')))
   );
 });
