@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pantalla grande · Ajedrez Siurot</title>
+<meta name="theme-color" content="#0f5a40">
+<link rel="icon" type="image/png" href="iconos/favicon.png">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body class="tv">
+
+<header class="tv-cab">
+  <img src="iconos/icon-192.png" alt="Logotipo del CEIP Manuel Siurot">
+  <div>
+    <h1 id="t-nombre">Ajedrez Siurot</h1>
+    <p>CEIP Manuel Siurot · La Palma del Condado</p>
+  </div>
+  <div class="der" id="t-pills"></div>
+</header>
+
+<main class="tv-cuerpo" id="t-cuerpo"><div class="cargando" style="color:#fff">Cargando el torneo…</div></main>
+<div class="tv-pie" id="t-pie"></div>
+
+<script src="comun.js"></script>
+<script>
+(function () {
+  'use strict';
+  const S = Siurot, { $, esc, I } = S;
+  const SEGUNDOS = 12;
+  let db = null, paginas = [], idx = 0, timer = null;
+
+  function calcular() {
+    const por = S.jugadoresPorId(db), pg = [];
+    const alto = window.innerHeight - 124 - 110;
+    const colsM = innerWidth >= 1500 ? 4 : innerWidth >= 1000 ? 3 : innerWidth >= 700 ? 2 : 1;
+    const filasM = Math.max(3, Math.floor(alto / 74));
+    const colsC = innerWidth >= 1000 ? 2 : 1;
+    const filasC = Math.max(4, Math.floor(alto / 56));
+    const r = db.currentRound;
+    if (db.started && !db.finished) {
+      const ms = S.partidasRonda(db, r), tam = colsM * filasM, n = Math.max(1, Math.ceil(ms.length / tam));
+      for (let i = 0; i < n; i++) { const it = ms.slice(i * tam, (i + 1) * tam), k = it.length;
+      pg.push({ t: 'mesas', titulo: `Mesas · ronda ${r}${n > 1 ? ` (${i + 1}/${n})` : ''}`, cols: Math.min(colsM, k <= 6 ? 2 : k <= 12 ? 3 : 4), z: k <= 6 ? 1.6 : k <= 12 ? 1.25 : 1, items: it, por }); }
+    }
+    if (db.started) {
+      const ord = S.ordenados(db), tam = colsC * filasC, n = Math.max(1, Math.ceil(ord.length / tam));
+      for (let i = 0; i < n; i++) { const it = ord.slice(i * tam, (i + 1) * tam);
+      pg.push({ t: 'clas', titulo: `${db.finished ? 'Clasificación final' : 'Clasificación'}${n > 1 ? ` (${i + 1}/${n})` : ''}`, cols: it.length <= 8 ? 1 : colsC, z: it.length <= 8 ? 1.5 : it.length <= 16 ? 1.2 : 1, items: it }); }
+    }
+    return pg;
+  }
+
+  function mesaTv(m, p) {
+    if (m.player2Id < 0) return `<div class="tv-mesa mid"><div class="nmesa">${m.table}</div><div class="j b" style="background:#f3eedd">${esc(p[m.player1Id].name)} <small>· ${m.player2Id === -1 ? 'descansa' : 'ausente'}</small></div></div>`;
+    const base = m.result.replace('F', '');
+    const cb = base === '1-0' ? 'gana' : base === '0-1' ? 'pierde' : '', cn = base === '0-1' ? 'gana' : base === '1-0' ? 'pierde' : '';
+    const med = base === '1/2-1/2' ? ' <small>½</small>' : '';
+    return `<div class="tv-mesa"><div class="nmesa">${m.table}</div><div class="j b ${cb}">${esc(p[m.player1Id].name)}${med}</div><div class="j n ${cn}">${med}${esc(p[m.player2Id].name)}</div></div>`;
+  }
+
+  function pintarPagina() {
+    const cuerpo = $('#t-cuerpo');
+    if (!paginas.length) { cuerpo.innerHTML = '<div class="vacio" style="color:#fff"><b style="color:#fff">El torneo aún no ha empezado</b>Cuando salgan las primeras mesas aparecerán aquí.</div>'; return; }
+    const pg = paginas[idx % paginas.length];
+    let h = '';
+    if (db.finished && pg.t === 'clas' && idx % paginas.length === 0) {
+      const g = S.ordenados(db)[0];
+      h += `<h2 class="tv-titulo" style="font-size:clamp(1.6rem,3vw,3rem)">¡Torneo terminado! Campeón o campeona: ${esc(g.name)} · ${S.pts(g.points)} pts</h2>`;
+    } else h += `<h2 class="tv-titulo">${pg.titulo}</h2>`;
+    if (pg.t === 'mesas') h += `<div class="tv-mesas" style="--cols:${pg.cols};--z:${pg.z}">${pg.items.map((m) => mesaTv(m, pg.por)).join('')}</div>`;
+    else h += `<div class="tv-clas" style="--cols:${pg.cols};--z:${pg.z}">${pg.items.map((p) => `<div class="tv-fila ${p.pos <= 3 ? 'top' : ''}"><span class="pos num">${p.pos}</span><span class="n">${esc(p.name)}</span><span class="p num">${S.pts(p.points)}</span></div>`).join('')}</div>`;
+    cuerpo.innerHTML = h;
+    $('#t-pie').textContent = `Actualizado ${S.hace(db.updated || Date.now())} · toca la pantalla para cambiar de página`;
+  }
+
+  function cabecera() {
+    $('#t-nombre').textContent = db.nombre;
+    const r = db.currentRound;
+    $('#t-pills').innerHTML = db.started ? `<span class="pill oro">Ronda ${r} de ${db.totalRondas}</span>${db.fechas[r] ? `<span class="pill">${I.cal} ${S.fecha(db.fechas[r])}</span>` : ''}` : '';
+  }
+
+  async function cargar() {
+    try { db = await S.api.leer(); S.cache.guardar(db); }
+    catch (e) { const c = S.cache.leer(); if (c && !db) db = c.db; if (!db) { $('#t-cuerpo').innerHTML = `<div class="vacio" style="color:#fff"><b style="color:#fff">No se pudo cargar</b>${esc(e.message)}</div>`; return; } }
+    cabecera();
+    paginas = calcular();
+    pintarPagina();
+  }
+
+  function siguiente() { idx++; pintarPagina(); }
+  document.addEventListener('click', () => { siguiente(); clearInterval(timer); timer = setInterval(siguiente, SEGUNDOS * 1000); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.key === ' ') siguiente(); if (e.key === 'ArrowLeft') { idx = Math.max(0, idx - 1); pintarPagina(); } });
+  window.addEventListener('resize', () => { if (db) { paginas = calcular(); pintarPagina(); } });
+  cargar();
+  timer = setInterval(siguiente, SEGUNDOS * 1000);
+  setInterval(cargar, 30000);
+})();
+</script>
+</body>
+</html>

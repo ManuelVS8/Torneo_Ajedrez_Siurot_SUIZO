@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo de ajedrez · CEIP Manuel Siurot</title>
 <meta name="description" content="Sigue en directo el torneo de ajedrez del CEIP Manuel Siurot: mesas, resultados y clasificación.">
-<meta name="theme-color" content="#0db4cf">
+<meta name="theme-color" content="#0f5a40">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="iconos/favicon.png">
 <link rel="apple-touch-icon" href="iconos/icon-180.png">
@@ -15,18 +15,21 @@
 <link rel="stylesheet" href="estilo.css">
 <style>
   .error-caja { text-align: center; padding: 30px 10px; }
+  .anterior { display: flex; align-items: center; gap: 10px; background: var(--crema); border: 2px dashed var(--oro-osc); border-radius: 16px; padding: 10px 14px; margin: 0 0 14px; font-weight: 800; }
+  .anterior a { margin-left: auto; color: var(--v2); font-family: var(--titulo); font-weight: 700; }
 </style>
 </head>
 <body>
 
 <header class="cab">
   <div class="cab-fila">
-    <img src="iconos/icon-192.png" alt="Logotipo del CEIP Manuel Siurot" width="52" height="52">
+    <img src="iconos/icon-192.png" alt="Logotipo del CEIP Manuel Siurot" width="50" height="50">
     <div>
-      <h1 id="titulo">Torneo de ajedrez</h1>
-      <p>CEIP Manuel Siurot · sistema suizo</p>
+      <h1>Ajedrez Siurot</h1>
+      <p>CEIP Manuel Siurot</p>
     </div>
     <div class="cab-acc">
+      <a class="btn-ico" id="btn-tv" href="pantalla.html" aria-label="Abrir en pantalla grande" title="Pantalla grande"></a>
       <button class="btn-ico" id="btn-recargar" aria-label="Actualizar datos"></button>
       <button class="btn-ico" data-instalar hidden aria-label="Instalar la app"></button>
     </div>
@@ -59,8 +62,11 @@
 
   // iconos fijos
   $('#btn-recargar').innerHTML = I.recargar;
+  $('#btn-tv').innerHTML = I.tv;
+  const MODO_ARCHIVO = /[?&]archivo=(\d+)/.exec(location.search);
+  let hist = null, clasifModo = 'general';
   $('[data-instalar]').innerHTML = I.instalar;
-  const etiquetas = { mesas: ['Mesas', I.mesas], clasif: ['Clasificación', I.podio], jugadores: ['Jugadores', I.gente], info: ['Cómo va', I.info] };
+  const etiquetas = { mesas: ['Mesas', I.mesas], clasif: ['Clasificación', I.podio], jugadores: ['Jugadores', I.gente], info: ['Ayuda', I.info] };
   $$('.nav button').forEach((b) => { const e = etiquetas[b.dataset.tab]; b.innerHTML = e[1] + '<span>' + e[0] + '</span>'; });
   $('.peon-caja').innerHTML = I.peon.replace('<svg', '<svg class="peon"');
 
@@ -88,6 +94,14 @@
     return `<div class="aviso ${cls}">${icono}<div>${titulo ? `<b>${titulo}</b>` : ''}${lineas.map((l) => `<span>${l}</span>`).join('')}</div></div>`;
   }
 
+  function hero() {
+    const r = ronda || db.currentRound;
+    const estado = db.finished ? '¡Torneo terminado!' : db.roundDone ? `Ronda ${db.currentRound} completada` : `Se está jugando la ronda ${db.currentRound}`;
+    return `<section class="hero"><h2>${esc(db.nombre)}</h2><p>${estado}</p>
+      <div class="pills"><span class="pill oro">Ronda ${r} de ${db.totalRondas}</span><span class="pill">${db.players.length} jugadores</span>${db.fechas[r] ? `<span class="pill">${I.cal} ${S.fecha(db.fechas[r])}</span>` : ''}</div>
+      <div class="escena">${S.escena()}</div></section>`;
+  }
+
   function vistaMesas() {
     if (!db.started) return vacio('El torneo aún no ha empezado', 'Cuando salgan las primeras mesas las verás aquí.');
     if (!ronda || ronda > db.currentRound) ronda = db.currentRound;
@@ -95,11 +109,12 @@
     let ms = S.partidasRonda(db, ronda);
     const q = norm(busca.trim());
     if (q) ms = ms.filter((m) => [m.player1Id, m.player2Id].some((id) => p[id] && norm(p[id].name).includes(q)));
-    let h = aviso();
+    let h = hero() + aviso();
     if (sigue && p[sigue]) {
       const m = S.partidasRonda(db, ronda).find((x) => x.player1Id === sigue || x.player2Id === sigue);
       if (m) {
         if (m.player2Id === -1) h += `<div class="mi-partida"><b>${esc(p[sigue].name)}</b><span>Esta ronda descansas y sumas 1 punto.</span></div>`;
+        else if (m.player2Id < 0) h += `<div class="mi-partida"><b>${esc(p[sigue].name)}</b><span>Esta ronda no juegas (ausente).</span></div>`;
         else {
           const blancas = m.player1Id === sigue, rival = p[blancas ? m.player2Id : m.player1Id];
           h += `<div class="mi-partida"><b>Mesa ${m.table}</b><span>${esc(p[sigue].name)} juega con ${blancas ? 'blancas' : 'negras'} contra ${esc(rival ? rival.name : '?')}.</span></div>`;
@@ -116,7 +131,13 @@
 
   function vistaClasif() {
     if (!db.started) return vacio('Todavía no hay clasificación', 'Aparecerá cuando se jueguen las primeras partidas.');
-    return aviso() + (db.finished ? '' : `<p class="nota" style="margin:0 4px 14px">Clasificación provisional tras ${db.currentRound - (db.roundDone ? 0 : 1)} de ${db.totalRondas} rondas.</p>`) + S.clasificacionHtml(db, { sigue });
+    const seg = [['general', 'General'], ['curso', 'Por curso'], ['clase', 'Por clase'], ['cruzado', 'Cuadro']];
+    let h = aviso() + (db.finished ? '' : `<p class="nota" style="margin:0 4px 12px">Clasificación provisional tras ${db.currentRound - (db.roundDone ? 0 : 1)} de ${db.totalRondas} rondas.</p>`);
+    h += `<div class="seg" role="group" aria-label="Tipo de clasificación">${seg.map((x) => `<button data-seg="${x[0]}" aria-pressed="${clasifModo === x[0]}">${x[1]}</button>`).join('')}</div>`;
+    if (clasifModo === 'general') h += S.clasificacionHtml(db, { sigue }) + S.notaDesempate(db);
+    else if (clasifModo === 'cruzado') h += S.cruzadoHtml(db);
+    else h += S.categoriasHtml(db, clasifModo, { sigue });
+    return h;
   }
 
   function vistaJugadores() {
@@ -136,21 +157,30 @@
   }
 
   function vistaInfo() {
-    const seg = sigue && db && por()[sigue] ? `<p>Estás siguiendo a <b>${esc(por()[sigue].name)}</b>. <button class="btn sec" id="dejar" style="margin-top:8px">Dejar de seguir</button></p>` : '<p>Toca el nombre de un jugador y pulsa «Seguir» para ver siempre su mesa arriba. Solo se guarda en este dispositivo.</p>';
+    const seg = sigue && db && por()[sigue] ? `<p>Estás siguiendo a <b>${esc(por()[sigue].name)}</b>. <button class="btn sec peq" id="dejar" style="margin-top:8px">Dejar de seguir</button></p>` : '<p>Toca el nombre de un jugador y pulsa «Seguir» para ver siempre su mesa arriba. Solo se guarda en este dispositivo.</p>';
+    const des = S.textoDes(db).map((t) => `<li>${t.charAt(0).toUpperCase() + t.slice(1)}.</li>`).join('');
+    let ant = '<p class="ayuda">Cargando…</p>';
+    if (hist) ant = hist.length ? `<ul class="lista-hist">${hist.map((x) => `<li><a href="?archivo=${x.n}">${I.corona}<span><b>${esc(x.nombre)}</b><small>${esc(x.fecha)} · ${esc(x.jugadores)} jugadores · ${esc(x.campeon)}</small></span></a></li>`).join('')}</ul>` : '<p class="ayuda">Todavía no hay torneos anteriores guardados.</p>';
     return `
-      <section class="panel"><h2>Cómo funciona</h2><ul>
+      <details class="panel" open><summary>Cómo funciona</summary><ul>
         <li>Ganar vale 1 punto, empatar (tablas) ½ y perder 0.</li>
         <li>En cada ronda juegas contra alguien con casi los mismos puntos que tú.</li>
         <li>No se repiten rivales.</li>
         <li>Si somos un número impar, alguien descansa esa ronda y suma 1 punto. Nadie descansa dos veces.</li>
-      </ul></section>
-      <section class="panel"><h2>Blancas y negras</h2>
+        <li>Si faltas un día, esa ronda cuenta 0 puntos y puedes seguir jugando las demás.</li>
+      </ul></details>
+      <details class="panel"><summary>Blancas y negras</summary>
         <div class="leyenda">${S.chip('B')} Blancas: salen primero</div>
         <div class="leyenda">${S.chip('N')} Negras</div>
-        <p>Se reparten lo más justo posible y nadie juega tres veces seguidas con el mismo color.</p></section>
-      <section class="panel"><h2>Si hay empate</h2>
-        <p>Primero gana quien tiene más puntos. Si siguen empatados, se mira el <b>Buchholz</b>: la suma de los puntos de tus rivales. Quien se ha enfrentado a rivales más fuertes queda por delante.</p></section>
-      <section class="panel"><h2>Tu jugador</h2>${seg}</section>
+        <p>Se reparten lo más justo posible y nadie juega tres veces seguidas con el mismo color.</p></details>
+      <details class="panel"><summary>Si hay empate</summary>
+        <p>Primero gana quien tiene más puntos. Si siguen empatados, se mira, por este orden:</p><ol style="padding-left:20px;margin:6px 0">${des}</ol></details>
+      <details class="panel"><summary>Cuántas rondas se juegan</summary>
+        <p>En un torneo suizo no hace falta jugar contra todos. Con ${db.players.length} jugadores, el criterio habitual de la FIDE es jugar al menos <b>${S.rondasFide(db.players.length)} rondas</b>: es lo mínimo para que pueda haber un único ganador con todos los puntos. Más rondas dan una clasificación más justa.</p></details>
+      <details class="panel"><summary>Tu jugador</summary>${seg}</details>
+      <details class="panel" id="p-ant"><summary>Torneos anteriores</summary>${ant}</details>
+      <section class="panel"><h2>Pantalla grande</h2><p>Para proyectar las mesas y la clasificación en la pizarra o en el pasillo.</p>
+        <a class="btn" href="pantalla.html" style="text-decoration:none">${I.tv} Abrir pantalla grande</a></section>
       <section class="panel"><h2>Instalar en el móvil</h2>
         <p>Añade el torneo a tu pantalla de inicio y ábrelo como una app.</p>
         <button class="btn" data-instalar hidden>${I.instalar} Instalar la app</button>
@@ -161,15 +191,24 @@
   function vacio(t, s) { return `<div class="vacio">${I.peon}<b>${t}</b>${s}</div>`; }
 
   function pintar() {
-    $('#titulo').textContent = db ? db.nombre : 'Torneo de ajedrez';
+    if (db) document.title = db.nombre + ' · CEIP Manuel Siurot';
     $$('.nav button').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
     const v = $('#vista');
     if (!db) return;
     const foco = document.activeElement && document.activeElement.id === 'q';
     const pos = foco ? document.activeElement.selectionStart : 0;
-    v.innerHTML = ({ mesas: vistaMesas, clasif: vistaClasif, jugadores: vistaJugadores, info: vistaInfo })[tab]();
+    v.innerHTML = (MODO_ARCHIVO ? `<div class="anterior">${I.carpeta.replace('<svg', '<svg width="22" height="22" fill="currentColor"')}<span>Torneo anterior (solo lectura)</span><a href="index.html">Ver el actual</a></div>` : '') + ({ mesas: vistaMesas, clasif: vistaClasif, jugadores: vistaJugadores, info: vistaInfo })[tab]();
+    if (tab === 'info' && !hist && !cargandoHist) cargarHist();
     S.pintarInstalar();
     if (foco) { const q = $('#q'); if (q) { q.focus(); q.setSelectionRange(pos, pos); } }
+  }
+
+  let cargandoHist = false;
+  async function cargarHist() {
+    cargandoHist = true;
+    try { hist = await S.api.historial(); } catch (e) { hist = []; }
+    cargandoHist = false;
+    if (tab === 'info') { const d = $('#p-ant'); const abierto = d && d.open; pintar(); const n = $('#p-ant'); if (n && abierto) n.open = true; }
   }
 
   function irA(t, desdeAtras) {
@@ -200,6 +239,7 @@
   document.addEventListener('click', (e) => {
     const nav = e.target.closest('.nav [data-tab]'); if (nav) { irA(nav.dataset.tab); return; }
     const a = e.target.closest('[data-act="jugador"]'); if (a && a.dataset.id) { abrirFicha(parseInt(a.dataset.id, 10)); return; }
+    const sg = e.target.closest('[data-seg]'); if (sg) { clasifModo = sg.dataset.seg; pintar(); return; }
     const r = e.target.closest('.paso[data-ronda]'); if (r && !r.disabled) { ronda = parseInt(r.dataset.ronda, 10); pintar(); return; }
     if (e.target.closest('#dejar')) { sigue = 0; try { localStorage.removeItem('siurot_sigue'); } catch (x) { /* */ } pintar(); S.toast('Ya no sigues a nadie'); return; }
     if (e.target.closest('#btn-recargar')) cargar(false);
@@ -213,9 +253,9 @@
     if (cargando) return; cargando = true;
     const btn = $('#btn-recargar'); btn.disabled = true;
     try {
-      const nuevo = await S.api.leer();
-      db = nuevo; offline = false; ultimaCarga = Date.now(); S.cache.guardar(db);
-      if (primera) { primera = false; if (db.finished) { tab = 'clasif'; history.replaceState({ tab: tab }, ''); if (!sessionStorage.getItem('confeti')) { sessionStorage.setItem('confeti', '1'); S.confeti(); } } }
+      const nuevo = MODO_ARCHIVO ? await S.api.archivo(MODO_ARCHIVO[1]) : await S.api.leer();
+      db = nuevo; offline = false; ultimaCarga = Date.now(); if (!MODO_ARCHIVO) S.cache.guardar(db);
+      if (primera) { primera = false; if (db.finished || MODO_ARCHIVO) { tab = 'clasif'; history.replaceState({ tab: tab }, ''); if (!MODO_ARCHIVO && !sessionStorage.getItem('confeti')) { sessionStorage.setItem('confeti', '1'); S.confeti(); } } }
       pintar();
       if (!silencio) S.toast('Datos al día', 'ok');
     } catch (e) {
@@ -225,12 +265,12 @@
   }
 
   // primero lo último que se vio (sin conexión), luego datos frescos
-  const guardado = S.cache.leer();
+  const guardado = MODO_ARCHIVO ? null : S.cache.leer();
   if (guardado && guardado.db) { db = guardado.db; offline = true; ultimaCarga = guardado.t; if (db.finished) tab = 'clasif'; pintar(); }
   S.nav.iniciar(tab, (t, atras) => irA(t, atras));
   cargar(true);
-  setInterval(() => { if (!document.hidden) cargar(true); }, 60000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - ultimaCarga > 30000) cargar(true); });
+  if (!MODO_ARCHIVO) setInterval(() => { if (!document.hidden) cargar(true); }, 60000);
+  document.addEventListener('visibilitychange', () => { if (!MODO_ARCHIVO && !document.hidden && Date.now() - ultimaCarga > 30000) cargar(true); });
 })();
 </script>
 </body>

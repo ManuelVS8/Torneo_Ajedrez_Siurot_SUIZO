@@ -22,13 +22,23 @@ const CACHE_KEY = "db_v3";
 const CACHE_SECONDS = 30;
 const MAX_FALLOS = 5;
 const BLOQUEO_SEGUNDOS = 600;
-const RESULTADOS = ["", "1-0", "0-1", "1/2-1/2"];
+// "F" al final = incomparecencia (cuenta los puntos, pero no la partida jugada: ni colores, ni Buchholz, ni rivales)
+const RESULTADOS = ["", "1-0", "0-1", "1/2-1/2", "1-0F", "0-1F", "0-0F"];
+const SHEET_HIST = "Historico";
+const HEAD_HIST = ["Fecha", "Torneo", "Jugadores", "Campeón", "Datos"];
+const MAX_HIST = 30;
+// Desempates (en este orden). directo = enfrentamiento directo, bh1 = Buchholz sin el peor rival, bh = Buchholz,
+// sb = Sonneborn-Berger, vict = nº de victorias, prog = puntuación progresiva
+const DESEMP_DEF = "directo,bh1,bh,sb,vict";
+const DESEMP_OK = ["directo", "bh1", "bh", "sb", "vict", "prog"];
 
 // ---------- Puntos de entrada ----------
 function doGet(e) {
   try {
     const a = (e && e.parameter && e.parameter.action) || "read";
     if (a === "ping") return out_({ status: "ok", t: Date.now() });
+    if (a === "historial") return out_({ status: "success", lista: listHistorial_() });
+    if (a === "archivo") return out_({ status: "success", db: readArchivo_(parseInt(e.parameter.n, 10)) });
     if (a !== "read") return out_({ status: "error", message: "Para modificar datos hay que usar el panel de administración." });
     return ContentService.createTextOutput(readPublicText_()).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
@@ -70,7 +80,12 @@ function handleAction_(p) {
       case "setNombre": setConfig_(ss, "Nombre", String(p.texto || "").slice(0, 60)); break;
       case "setRondas": extra = setRondas_(ss, p); break;
       case "setRetirado": extra = setRetirado_(ss, p); break;
-      case "reset": resetAll_(ss); break;
+      case "reset": archive_(ss); resetAll_(ss); break;
+      case "setAusente": setAusente_(ss, p); break;
+      case "addPlayer": extra = addPlayer_(ss, p); break;
+      case "setDesempates": setDesempates_(ss, p); break;
+      case "restore": extra = restore_(ss, p); break;
+      case "archive": extra = { archived: archive_(ss) }; break;
       default: throw new Error("Acción desconocida");
     }
     touch_(ss);
@@ -171,51 +186,141 @@ function readRaw_(ss) {
 }
 
 // ---------- Estadísticas (única fuente de verdad: las partidas) ----------
+// Tipos de mesa: rival > 0 partida normal · -1 descanso (1 punto) · -2 ausente (0) · -3 ausente con ½ punto
+function esPartida_(m) { return m.player2Id > 0; }
+
 function computeStats_(players, matches) {
   const st = {};
-  players.forEach(function (p) { st[p.id] = { points: 0, bh: 0, wins: 0, byes: 0, colors: "", opps: [] }; });
-  matches.forEach(function (m) {
-    const a = st[m.player1Id];
-    if (!a) return;
-    if (m.player2Id === -1) { a.byes++; a.points += 1; return; }
-    const b = st[m.player2Id];
-    if (!b) return;
-    a.colors += "B"; b.colors += "N";
-    a.opps.push(m.player2Id); b.opps.push(m.player1Id);
-    if (m.result === "1-0") { a.points += 1; a.wins++; }
-    else if (m.result === "0-1") { b.points += 1; b.wins++; }
-    else if (m.result === "1/2-1/2") { a.points += 0.5; b.points += 0.5; }
+  players.forEach(function (p) { st[p.id] = { points: 0, bh: 0, bh1: 0, sb: 0, prog: 0, wins: 0, byes: 0, aus: 0, colors: "", opps: [], oppPts: [] }; });
+  const rounds = {};
+  matches.forEach(function (m) { (rounds[m.round] = rounds[m.round] || []).push(m); });
+  Object.keys(rounds).map(Number).sort(function (a, b) { return a - b; }).forEach(function (r) {
+    rounds[r].forEach(function (m) {
+      const a = st[m.player1Id];
+      if (!a) return;
+      if (m.player2Id === -1) { a.byes++; a.points += 1; return; }
+      if (m.player2Id === -2) { a.aus++; return; }
+      if (m.player2Id === -3) { a.aus++; a.points += 0.5; return; }
+      const b = st[m.player2Id];
+      if (!b) return;
+      const forf = /F$/.test(m.result);
+      const res = m.result.replace("F", "");
+      if (!forf) { a.colors += "B"; b.colors += "N"; a.opps.push(m.player2Id); b.opps.push(m.player1Id); }
+      if (res === "1-0") { a.points += 1; if (!forf) a.wins++; }
+      else if (res === "0-1") { b.points += 1; if (!forf) b.wins++; }
+      else if (res === "1/2-1/2") { a.points += 0.5; b.points += 0.5; }
+    });
+    players.forEach(function (p) { st[p.id].prog += st[p.id].points; });
   });
   matches.forEach(function (m) {
-    if (m.player2Id === -1 || !m.result) return;
+    if (!esPartida_(m) || !m.result || /F$/.test(m.result)) return;
     const a = st[m.player1Id], b = st[m.player2Id];
     if (!a || !b) return;
     a.bh += b.points; b.bh += a.points;
+    a.oppPts.push(b.points); b.oppPts.push(a.points);
+    if (m.result === "1-0") a.sb += b.points;
+    else if (m.result === "0-1") b.sb += a.points;
+    else if (m.result === "1/2-1/2") { a.sb += b.points / 2; b.sb += a.points / 2; }
+  });
+  players.forEach(function (p) {
+    const s = st[p.id];
+    s.bh1 = s.oppPts.length ? s.bh - Math.min.apply(null, s.oppPts) : 0;
   });
   return st;
 }
 
+// Para emparejar: puntos, Buchholz, victorias
 function rankSort_(a, b) {
   return (b.points - a.points) || (b.bh - a.bh) || (b.wins - a.wins) || (a.id - b.id);
 }
 
-function buildDb_(ss) {
-  const raw = readRaw_(ss);
+function parseDesemp_(s) {
+  const out = [];
+  String(s || "").split(",").forEach(function (k) {
+    k = k.trim();
+    if (DESEMP_OK.indexOf(k) >= 0 && out.indexOf(k) < 0) out.push(k);
+  });
+  return out.length ? out : DESEMP_DEF.split(",");
+}
+
+// Clasificación: puntos y después los desempates elegidos, en orden.
+function rankPlayers_(list, matches, crit) {
+  const sorted = list.slice().sort(function (a, b) { return (b.points - a.points) || (a.id - b.id); });
+  const out = [];
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i;
+    while (j < sorted.length && sorted[j].points === sorted[i].points) j++;
+    tieBreak_(sorted.slice(i, j), crit, matches).forEach(function (p) { out.push(p); });
+    i = j;
+  }
+  return out;
+}
+
+function tieBreak_(group, crit, matches) {
+  if (group.length <= 1) return group;
+  if (!crit.length) return group.slice().sort(function (a, b) { return a.id - b.id; });
+  const k = crit[0], rest = crit.slice(1), val = {};
+  if (k === "directo") {
+    const ids = {}, met = {};
+    let n = 0;
+    group.forEach(function (p) { ids[p.id] = true; val[p.id] = 0; });
+    matches.forEach(function (m) {
+      if (!ids[m.player1Id] || !ids[m.player2Id] || !m.result || /F$/.test(m.result)) return;
+      const key = Math.min(m.player1Id, m.player2Id) + "-" + Math.max(m.player1Id, m.player2Id);
+      if (!met[key]) { met[key] = true; n++; }
+      if (m.result === "1-0") val[m.player1Id] += 1;
+      else if (m.result === "0-1") val[m.player2Id] += 1;
+      else { val[m.player1Id] += 0.5; val[m.player2Id] += 0.5; }
+    });
+    // Solo sirve si TODOS los empatados se han enfrentado entre sí
+    if (n < group.length * (group.length - 1) / 2) group.forEach(function (p) { val[p.id] = 0; });
+  } else {
+    const f = k === "vict" ? "wins" : k;
+    group.forEach(function (p) { val[p.id] = p[f]; });
+  }
+  const sorted = group.slice().sort(function (a, b) { return (val[b.id] - val[a.id]) || (a.id - b.id); });
+  const out = [];
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i;
+    while (j < sorted.length && val[sorted[j].id] === val[sorted[i].id]) j++;
+    tieBreak_(sorted.slice(i, j), rest, matches).forEach(function (p) { out.push(p); });
+    i = j;
+  }
+  return out;
+}
+
+function parseAusentes_(s) {
+  const out = {};
+  String(s || "").split(",").forEach(function (x) {
+    const t = x.split(":");
+    const id = parseInt(t[0], 10);
+    if (id > 0) out[id] = t[1] === "h" ? "medio" : "cero";
+  });
+  return out;
+}
+
+function buildDb_(ss) { return buildDbFromRaw_(readRaw_(ss)); }
+
+function buildDbFromRaw_(raw) {
   const st = computeStats_(raw.players, raw.matches);
+  const crit = parseDesemp_(raw.cfg.Desempates);
   const players = raw.players.map(function (p) {
     const s = st[p.id];
-    return { id: p.id, name: p.name, retired: p.retired, points: s.points, buchholz: s.bh, wins: s.wins, byes: s.byes, colors: s.colors, pos: 0 };
+    return { id: p.id, name: p.name, retired: p.retired, points: s.points, buchholz: s.bh, bh1: s.bh1, sb: s.sb, prog: s.prog, wins: s.wins, byes: s.byes, aus: s.aus, colors: s.colors, pos: 0 };
   });
-  players.slice().sort(rankSort_with_).forEach(function (p, i) { p.pos = i + 1; });
+  rankPlayers_(players, raw.matches, crit).forEach(function (p, i) { p.pos = i + 1; });
   let currentRound = 0;
   raw.matches.forEach(function (m) { if (m.round > currentRound) currentRound = m.round; });
   const total = parseInt(raw.cfg.TotalRondas || "0", 10) || 0;
   let lastDone = currentRound > 0;
-  raw.matches.forEach(function (m) { if (m.round === currentRound && m.player2Id !== -1 && !m.result) lastDone = false; });
+  raw.matches.forEach(function (m) { if (m.round === currentRound && esPartida_(m) && !m.result) lastDone = false; });
   const fechas = {};
   Object.keys(raw.cfg).forEach(function (k) {
     if (k.indexOf("Fecha_") === 0 && raw.cfg[k]) fechas[k.slice(6)] = raw.cfg[k];
   });
+  const aus = parseAusentes_(raw.cfg.Ausentes);
   return {
     players: players,
     matches: raw.matches,
@@ -227,12 +332,10 @@ function buildDb_(ss) {
     nombre: raw.cfg.Nombre || "Torneo de ajedrez",
     aviso: raw.cfg.Aviso || "",
     fechas: fechas,
+    desempates: crit,
+    ausentes: Object.keys(aus).map(function (id) { return { id: parseInt(id, 10), tipo: aus[id] }; }),
     updated: parseInt(raw.cfg.Actualizado || "0", 10) || 0
   };
-}
-
-function rankSort_with_(a, b) {
-  return (b.points - a.points) || (b.buchholz - a.buchholz) || (b.wins - a.wins) || (a.id - b.id);
 }
 
 function readPublicText_() {
@@ -282,6 +385,7 @@ function createTournament_(ss, p) {
   const ps = getSheet_(ss, SHEET_PLAYERS, HEAD_PLAYERS);
   const rs = getSheet_(ss, SHEET_ROUNDS, HEAD_ROUNDS);
   const cs = getSheet_(ss, SHEET_CONFIG, ["Parametro", "Valor"]);
+  const archived = archive_(ss);
   ps.getRange(1, 1, 1, HEAD_PLAYERS.length).setValues([HEAD_PLAYERS]);
   rs.getRange(1, 1, 1, HEAD_ROUNDS.length).setValues([HEAD_ROUNDS]);
   clearBody_(ps); clearBody_(rs);
@@ -290,11 +394,11 @@ function createTournament_(ss, p) {
   cs.clearContents();
   cs.getRange(1, 2, cs.getMaxRows(), 1).setNumberFormat("@");
   const cfg = [["Parametro", "Valor"], ["RondaActual", "1"], ["TotalRondas", String(rondas)],
-    ["Nombre", String(p.nombre || "Torneo de ajedrez").slice(0, 60)], ["Aviso", ""], ["Actualizado", String(Date.now())]];
+    ["Nombre", String(p.nombre || "Torneo de ajedrez").slice(0, 60)], ["Aviso", ""], ["Desempates", DESEMP_DEF], ["Actualizado", String(Date.now())]];
   cs.getRange(1, 1, cfg.length, 2).setValues(cfg);
   if (p.fecha) setFecha_(ss, { round: 1, fecha: p.fecha });
   const warnings = generateRound_(ss);
-  return { warnings: warnings };
+  return { warnings: warnings, archived: archived };
 }
 
 // Un suizo no debe tener más rondas que la mitad de jugadores (si no, es casi un todos-contra-todos y habría repeticiones)
@@ -337,12 +441,13 @@ function generateRound_(ss) {
   let last = 0;
   raw.matches.forEach(function (m) { if (m.round > last) last = m.round; });
   raw.matches.forEach(function (m) {
-    if (m.round === last && m.player2Id !== -1 && !m.result) throw new Error("Faltan resultados en la ronda " + last + ".");
+    if (m.round === last && esPartida_(m) && !m.result) throw new Error("Faltan resultados en la ronda " + last + ".");
   });
   const target = last + 1;
   if (total && target > total) throw new Error("El torneo ya tiene todas sus rondas.");
   const st = computeStats_(raw.players, raw.matches);
-  const active = raw.players.filter(function (p) { return !p.retired; }).map(function (p) {
+  const aus = parseAusentes_(raw.cfg.Ausentes);
+  const active = raw.players.filter(function (p) { return !p.retired && !aus[p.id]; }).map(function (p) {
     const s = st[p.id];
     return { id: p.id, name: p.name, points: s.points, bh: s.bh, wins: s.wins, byes: s.byes, colors: s.colors, opps: s.opps };
   });
@@ -350,13 +455,18 @@ function generateRound_(ss) {
   const res = pairRound_(active);
   const rows = [];
   res.pairs.forEach(function (pr, i) { rows.push([target, i + 1, pr.white, pr.black, ""]); });
-  if (res.bye) rows.push([target, res.pairs.length + 1, res.bye, -1, "1-0"]);
+  if (res.bye) rows.push([target, rows.length + 1, res.bye, -1, "1-0"]);
+  raw.players.forEach(function (p) {
+    if (p.retired || !aus[p.id]) return;
+    rows.push([target, rows.length + 1, p.id, aus[p.id] === "medio" ? -3 : -2, aus[p.id] === "medio" ? "1/2-1/2" : "0-1"]);
+  });
   const rs = getSheet_(ss, SHEET_ROUNDS, HEAD_ROUNDS);
   const start = Math.max(rs.getLastRow(), 1) + 1;
   const rng = rs.getRange(start, 1, rows.length, 5);
   rs.getRange(start, 5, rows.length, 1).setNumberFormat("@");
   rng.setValues(rows);
   setConfig_(ss, "RondaActual", target);
+  setConfig_(ss, "Ausentes", "");
   mirror_(ss);
   return res.warnings.map(function (w) { return "Ronda " + target + ": " + w; });
 }
@@ -391,13 +501,13 @@ function setResult_(ss, p) {
     if (parseInt(d[i][0], 10) === parseInt(p.round, 10) && parseInt(d[i][1], 10) === parseInt(p.table, 10)) { row = i; break; }
   }
   if (row < 0) throw new Error("No existe esa mesa.");
-  if (parseInt(d[row][3], 10) === -1) throw new Error("La mesa de descanso no tiene resultado.");
+  if (parseInt(d[row][3], 10) <= 0) throw new Error("Esa mesa no tiene resultado (descanso o ausencia).");
   rs.getRange(row + 2, 5).setNumberFormat("@").setValue(result);
   d[row][4] = result;
   let done = true, last = 0;
   d.forEach(function (r) { if (r[0] > last) last = r[0]; });
-  d.forEach(function (r) { if (r[0] === last && parseInt(r[3], 10) !== -1 && !r[4]) done = false; });
-  if (done) mirror_(ss);
+  d.forEach(function (r) { if (r[0] === last && parseInt(r[3], 10) > 0 && !r[4]) done = false; });
+  if (done || parseInt(p.round, 10) < last) mirror_(ss);
   return { roundDone: done };
 }
 
@@ -540,4 +650,148 @@ function pairRound_(players) {
     }
   }
   throw new Error("No se pudo emparejar la ronda. Revisa los jugadores retirados.");
+}
+
+// ---------- Ausencias, altas tardías, desempates ----------
+// value: "" (juega) · "cero" (ausente, 0 puntos) · "medio" (ausente con ½ punto)
+function setAusente_(ss, p) {
+  const raw = readRaw_(ss);
+  const id = parseInt(p.id, 10);
+  const pl = raw.players.filter(function (x) { return x.id === id; })[0];
+  if (!pl || pl.retired) throw new Error("Jugador no válido");
+  const v = String(p.value || "");
+  if (["", "cero", "medio"].indexOf(v) < 0) throw new Error("Valor no válido");
+  const aus = parseAusentes_(raw.cfg.Ausentes);
+  if (v) aus[id] = v; else delete aus[id];
+  setConfig_(ss, "Ausentes", Object.keys(aus).map(function (k) { return k + ":" + (aus[k] === "medio" ? "h" : "0"); }).join(","));
+  return null;
+}
+
+function normNombre_(n) { return String(n).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim(); }
+
+function addPlayer_(ss, p) {
+  const raw = readRaw_(ss);
+  if (!raw.matches.length) throw new Error("Primero hay que crear el torneo.");
+  const name = String(p.name || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  if (!name) throw new Error("Escribe el nombre.");
+  if (raw.players.length >= 200) throw new Error("Máximo 200 jugadores.");
+  if (raw.players.some(function (x) { return normNombre_(x.name) === normNombre_(name); })) throw new Error("Ya hay un jugador con ese nombre. Añade el curso para distinguirlos.");
+  const half = Number(p.puntos) === 0.5;
+  const ps = getSheet_(ss, SHEET_PLAYERS, HEAD_PLAYERS);
+  const id = ps.getLastRow();
+  ps.getRange(id + 1, 1, 1, 7).setValues([[name, 0, 0, 0, 0, "", false]]);
+  const maxT = {}, cur = {};
+  raw.matches.forEach(function (m) { maxT[m.round] = Math.max(maxT[m.round] || 0, m.table); cur[m.round] = true; });
+  const rows = [];
+  Object.keys(cur).map(Number).sort(function (a, b) { return a - b; }).forEach(function (r) {
+    rows.push([r, maxT[r] + 1, id, half ? -3 : -2, half ? "1/2-1/2" : "0-1"]);
+  });
+  const rs = getSheet_(ss, SHEET_ROUNDS, HEAD_ROUNDS);
+  const start = Math.max(rs.getLastRow(), 1) + 1;
+  rs.getRange(start, 5, rows.length, 1).setNumberFormat("@");
+  rs.getRange(start, 1, rows.length, 5).setValues(rows);
+  mirror_(ss);
+  return null;
+}
+
+function setDesempates_(ss, p) {
+  const l = Array.isArray(p.lista) ? p.lista : [];
+  if (!l.length || l.some(function (k) { return DESEMP_OK.indexOf(k) < 0; })) throw new Error("Desempates no válidos");
+  setConfig_(ss, "Desempates", l.join(","));
+  return null;
+}
+
+// ---------- Archivo de torneos y copia de seguridad ----------
+function snapshotFromRaw_(raw) {
+  const fechas = {};
+  Object.keys(raw.cfg).forEach(function (k) { if (k.indexOf("Fecha_") === 0 && raw.cfg[k]) fechas[k.slice(6)] = raw.cfg[k]; });
+  return {
+    v: 1, nombre: raw.cfg.Nombre || "", aviso: raw.cfg.Aviso || "",
+    total: parseInt(raw.cfg.TotalRondas || "0", 10) || 0,
+    desempates: raw.cfg.Desempates || DESEMP_DEF, fechas: fechas,
+    players: raw.players.map(function (x) { return [x.id, x.name, x.retired ? 1 : 0]; }),
+    matches: raw.matches.map(function (m) { return [m.round, m.table, m.player1Id, m.player2Id, m.result]; })
+  };
+}
+
+function rawFromSnapshot_(s) {
+  const cfg = { TotalRondas: String(s.total || 0), Nombre: s.nombre || "", Aviso: s.aviso || "", Desempates: s.desempates || DESEMP_DEF, Actualizado: "0" };
+  Object.keys(s.fechas || {}).forEach(function (k) { cfg["Fecha_" + k] = s.fechas[k]; });
+  return {
+    cfg: cfg,
+    players: s.players.map(function (x) { return { id: x[0], name: x[1], retired: x[2] === 1 }; }),
+    matches: s.matches.map(function (m) { return { id: "m_" + m[0] + "_" + m[1], round: m[0], table: m[1], player1Id: m[2], player2Id: m[3], result: String(m[4] || "") }; })
+  };
+}
+
+// Guarda una copia del torneo actual en la hoja "Historico" (si tiene partidas)
+function archive_(ss) {
+  const raw = readRaw_(ss);
+  if (!raw.matches.length) return false;
+  const snap = snapshotFromRaw_(raw);
+  const db = buildDbFromRaw_(raw);
+  const champ = db.finished ? (db.players.filter(function (x) { return x.pos === 1; })[0] || {}).name : "(sin terminar)";
+  const hs = getSheet_(ss, SHEET_HIST, HEAD_HIST);
+  const row = Math.max(hs.getLastRow(), 1) + 1;
+  hs.getRange(row, 1, 1, 5).setNumberFormat("@").setValues([[new Date().toISOString().slice(0, 10), snap.nombre || "Torneo", String(db.players.length), champ || "", JSON.stringify(snap)]]);
+  const extra = hs.getLastRow() - 1 - MAX_HIST;
+  if (extra > 0) hs.deleteRows(2, extra);
+  return true;
+}
+
+function listHistorial_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hs = ss.getSheetByName(SHEET_HIST);
+  const out = [];
+  if (!hs || hs.getLastRow() < 2) return out;
+  const d = hs.getRange(2, 1, hs.getLastRow() - 1, 4).getValues();
+  for (let i = d.length - 1; i >= 0; i--) out.push({ n: i + 2, fecha: String(d[i][0]), nombre: String(d[i][1]), jugadores: String(d[i][2]), campeon: String(d[i][3]) });
+  return out;
+}
+
+function readArchivo_(n) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hs = ss.getSheetByName(SHEET_HIST);
+  if (!hs || !n || n < 2 || n > hs.getLastRow()) throw new Error("Ese torneo no existe.");
+  const snap = JSON.parse(hs.getRange(n, 5).getValue());
+  const db = buildDbFromRaw_(rawFromSnapshot_(snap));
+  db.archivo = true;
+  return db;
+}
+
+function restore_(ss, p) {
+  const s = p.datos;
+  if (!s || s.v !== 1 || !Array.isArray(s.players) || !Array.isArray(s.matches)) throw new Error("El archivo de copia no es válido.");
+  if (s.players.length < 4 || s.players.length > 200) throw new Error("Copia no válida (jugadores).");
+  let maxId = 0;
+  s.players.forEach(function (x) { if (!(x[0] > 0) || typeof x[1] !== "string" || !x[1].trim()) throw new Error("Copia no válida (jugador)."); maxId = Math.max(maxId, x[0]); });
+  if (maxId > 400) throw new Error("Copia no válida (ids).");
+  let rondaMax = 0;
+  s.matches.forEach(function (m) {
+    if (!(m[0] > 0) || !(m[1] > 0) || !(m[2] > 0 && m[2] <= maxId) || !(m[3] <= maxId && m[3] !== 0 && m[3] >= -3) || RESULTADOS.indexOf(String(m[4] || "")) < 0) throw new Error("Copia no válida (partida).");
+    rondaMax = Math.max(rondaMax, m[0]);
+  });
+  archive_(ss);
+  const ps = getSheet_(ss, SHEET_PLAYERS, HEAD_PLAYERS);
+  const rs = getSheet_(ss, SHEET_ROUNDS, HEAD_ROUNDS);
+  const cs = getSheet_(ss, SHEET_CONFIG, ["Parametro", "Valor"]);
+  clearBody_(ps); clearBody_(rs);
+  const rowsP = [];
+  for (let i = 1; i <= maxId; i++) rowsP.push(["", 0, 0, 0, 0, "", false]);
+  s.players.forEach(function (x) { rowsP[x[0] - 1] = [String(x[1]).slice(0, 60), 0, 0, 0, 0, "", x[2] === 1]; });
+  ps.getRange(2, 1, rowsP.length, 7).setValues(rowsP);
+  const rowsR = s.matches.map(function (m) { return [m[0], m[1], m[2], m[3], String(m[4] || "")]; });
+  if (rowsR.length) {
+    rs.getRange(2, 5, rowsR.length, 1).setNumberFormat("@");
+    rs.getRange(2, 1, rowsR.length, 5).setValues(rowsR);
+  }
+  cs.clearContents();
+  cs.getRange(1, 2, cs.getMaxRows(), 1).setNumberFormat("@");
+  const cfg = [["Parametro", "Valor"], ["RondaActual", String(rondaMax)], ["TotalRondas", String(parseInt(s.total, 10) || rondaMax)],
+    ["Nombre", String(s.nombre || "Torneo de ajedrez").slice(0, 60)], ["Aviso", String(s.aviso || "").slice(0, 300)],
+    ["Desempates", parseDesemp_(s.desempates).join(",")], ["Actualizado", String(Date.now())]];
+  Object.keys(s.fechas || {}).forEach(function (k) { if (/^\d+$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(String(s.fechas[k]))) cfg.push(["Fecha_" + k, String(s.fechas[k])]); });
+  cs.getRange(1, 1, cfg.length, 2).setValues(cfg);
+  mirror_(ss);
+  return null;
 }

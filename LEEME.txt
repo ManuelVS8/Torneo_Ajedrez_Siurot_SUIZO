@@ -4,6 +4,8 @@ TORNEO DE AJEDREZ · CEIP MANUEL SIUROT
 QUÉ HAY
   index.html        Página PÚBLICA (solo lectura). Es la que enlazas desde ajedrezsiurot.com.
   admin.html        Tu panel (necesita clave). Solo tú anotas resultados y generas rondas.
+  pantalla.html     Modo pantalla grande (mesas y clasificación rotando) para proyectar.
+  fuentes/          Tipografías (Fredoka y Nunito) alojadas en tu propia web.
   apps-script/Code.gs   El código que va en Google Apps Script.
   resto             estilo, iconos, manifiestos y sw.js (no hace falta tocarlos).
 
@@ -24,9 +26,18 @@ PASO 2 · GitHub Pages
      y  .../admin.html  (tu panel). Pon solo el enlace público en ajedrezsiurot.com.
   Si algún día cambias la dirección del Script, edita SCRIPT_URL al principio de comun.js.
 
+NOVEDADES (v. diseño verde)
+  - Rondas recomendadas según FIDE (⌈log2 n⌉) con alternativas más cortas o más largas.
+  - Desempates configurables (por defecto: directo, Buchholz sin el peor, Buchholz, Sonneborn-Berger, victorias).
+  - Ausentes (0 o ½ punto), incomparecencias (botón ⋯ en cada mesa), altas tardías.
+  - Corregir resultados de rondas anteriores (Mesas > elegir la ronda).
+  - Clasificación por curso, por clase y cuadro cruzado (los cursos se leen del nombre: «Ana 4ºA»).
+  - Exportar a Excel (.csv), copia de seguridad y restaurar; los torneos anteriores se archivan solos.
+  IMPORTANTE: como Code.gs ha cambiado, repite el PASO 1 (pegar y «Nueva versión»).
+
 USO
   - Torneo > Nuevo torneo: pega los nombres (uno por línea), fecha de la ronda 1 y crea.
-    Ojo: crear un torneo nuevo BORRA los datos del anterior en el Sheet.
+    El torneo anterior se guarda solo en la hoja «Historico» (los 30 últimos) antes de crear el nuevo.
   - Mesas: toca el lado del ganador (se guarda solo). Toca otra vez para borrar. ½ = tablas.
   - Cuando están todos los resultados aparece "Generar ronda N" (te pide la fecha).
   - Torneo: fechas por ronda, aviso para las familias, imprimir mesas/clasificación, deshacer ronda.

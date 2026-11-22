@@ -1,11 +1,13 @@
 /* Service worker · Ajedrez Siurot
    - Archivos de la propia app: primero la red (así los cambios llegan solos) y, sin conexión, la última copia.
    - Las peticiones al Script de Google NUNCA pasan por aquí: los resultados siempre van a la red. */
-const CACHE = 'ajedrez-siurot-torneo-1';
+const CACHE = 'ajedrez-siurot-torneo-2';
 const BASICOS = [
-  './', './index.html', './admin.html', './estilo.css', './comun.js',
+  './', './index.html', './admin.html', './pantalla.html', './estilo.css', './comun.js',
   './manifest.json', './manifest-admin.json',
-  './iconos/icon-192.png', './iconos/icon-512.png', './iconos/icon-180.png', './iconos/icon-maskable-512.png', './iconos/favicon.png'
+  './iconos/icon-192.png', './iconos/icon-512.png', './iconos/icon-180.png', './iconos/icon-maskable-512.png', './iconos/favicon.png',
+  './fuentes/fredoka-latin-600-normal.woff2', './fuentes/fredoka-latin-700-normal.woff2',
+  './fuentes/nunito-latin-400-normal.woff2', './fuentes/nunito-latin-700-normal.woff2', './fuentes/nunito-latin-800-normal.woff2'
 ];
 
 self.addEventListener('install', (e) => {
