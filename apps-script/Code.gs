@@ -85,6 +85,10 @@ function handleAction_(p) {
       case "addPlayer": extra = addPlayer_(ss, p); break;
       case "setDesempates": setDesempates_(ss, p); break;
       case "restore": extra = restore_(ss, p); break;
+      case "getInscritos": extra = { inscritos: leerInscritos_(ss) }; break;
+      case "addInscritos": extra = addInscritos_(ss, p); break;
+      case "removeInscrito": extra = removeInscrito_(ss, p); break;
+      case "clearInscritos": guardarInscritos_(ss, []); extra = { inscritos: [] }; break;
       case "archive": extra = { archived: archive_(ss) }; break;
       default: throw new Error("Acción desconocida");
     }
@@ -365,6 +369,35 @@ function mirror_(ss) {
   ps.getRange(2, 6, n, 1).setNumberFormat("@").setValues(cols);
 }
 
+// ---------- Inscripción: lista de jugadores guardada ANTES de crear el torneo ----------
+// Se guarda en Configuracion (clave "Inscritos", un nombre por línea). No es pública: solo la ve quien tiene la clave.
+function leerInscritos_(ss) {
+  const t = readConfig_(ss).Inscritos || "";
+  return t.split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
+}
+function guardarInscritos_(ss, lista) { setConfig_(ss, "Inscritos", lista.join("\n")); }
+function claveNombre_(n) { return String(n).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim(); }
+function addInscritos_(ss, p) {
+  const actual = leerInscritos_(ss);
+  const nuevos = (Array.isArray(p.nombres) ? p.nombres : []).map(function (x) { return String(x).replace(/\s+/g, " ").trim().slice(0, 40); }).filter(Boolean);
+  if (!nuevos.length) throw new Error("No hay nombres que añadir.");
+  const vistos = {}, rep = [];
+  actual.forEach(function (n) { vistos[claveNombre_(n)] = true; });
+  nuevos.forEach(function (n) { const k = claveNombre_(n); if (vistos[k]) rep.push(n); vistos[k] = true; });
+  if (rep.length) throw new Error("Ya está en la lista: " + rep.join(", ") + ". Añade la inicial del apellido para distinguirlos.");
+  if (actual.length + nuevos.length > 200) throw new Error("Máximo 200 jugadores.");
+  const lista = actual.concat(nuevos);
+  guardarInscritos_(ss, lista);
+  return { inscritos: lista };
+}
+function removeInscrito_(ss, p) {
+  const k = claveNombre_(p.nombre || "");
+  let quitado = false;
+  const lista = leerInscritos_(ss).filter(function (n) { if (!quitado && claveNombre_(n) === k) { quitado = true; return false; } return true; });
+  guardarInscritos_(ss, lista);
+  return { inscritos: lista };
+}
+
 // ---------- Crear torneo ----------
 function createTournament_(ss, p) {
   let names = (Array.isArray(p.players) ? p.players : []).map(function (x) { return String(x).replace(/\s+/g, " ").trim(); }).filter(Boolean);
@@ -419,9 +452,11 @@ function resetAll_(ss) {
   const ps = getSheet_(ss, SHEET_PLAYERS, HEAD_PLAYERS);
   const rs = getSheet_(ss, SHEET_ROUNDS, HEAD_ROUNDS);
   const cs = getSheet_(ss, SHEET_CONFIG, ["Parametro", "Valor"]);
+  const ins = readConfig_(ss).Inscritos || "";   // la lista de apuntados sobrevive a "borrar el torneo"
   clearBody_(ps); clearBody_(rs);
   cs.clearContents();
   cs.getRange(1, 1, 1, 2).setValues([["Parametro", "Valor"]]);
+  if (ins) setConfig_(ss, "Inscritos", ins);
 }
 
 // ---------- Rondas ----------
