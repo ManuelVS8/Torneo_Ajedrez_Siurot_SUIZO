@@ -292,6 +292,7 @@
       h += `<section class="panel"><h2>Torneos anteriores</h2>${histAdmin === null ? '<p class="ayuda">Cargando…</p>' : histAdmin.length ? `<ul class="lista-hist">${histAdmin.map((x) => `<li><a href="index.html?archivo=${x.n}">${I.corona}<span><b>${esc(x.nombre)}</b><small>${esc(x.fecha)} · ${esc(x.jugadores)} jugadores · ${esc(x.campeon)}</small></span></a></li>`).join('')}</ul>` : '<p class="ayuda">Aún no hay ninguno.</p>'}
         <p class="ayuda">Al crear un torneo nuevo, el anterior se guarda solo aquí (los 30 últimos).</p></section>`;
       if (db.currentRound > 1) h += `<section class="panel"><h2>Me he equivocado</h2><p>Si generaste una ronda por error, puedes deshacer la última (la ronda ${db.currentRound}) y sus resultados. Para corregir un resultado de una ronda anterior, ve a Mesas, elige esa ronda y cámbialo.</p><div class="btns"><button class="btn sec" data-act="deshacer">Deshacer la ronda ${db.currentRound}</button></div></section>`;
+      else h += `<section class="panel"><h2>¿Faltan jugadores por apuntar?</h2><p>Estás en la ronda 1. Puedes volver a la inscripción: las mesas de la ronda 1 se borran, los ${db.players.filter((x) => !x.retired).length} jugadores pasan a la lista de apuntados y puedes seguir añadiendo clases. El sorteo se hace de nuevo cuando pulses «Crear torneo».</p><div class="btns"><button class="btn sec" data-act="reabrir-insc">Volver a la inscripción</button></div></section>`;
     }
     const lineas = insc ? insc.length : 0;
     h += inscripcionHtml(hay);
@@ -372,20 +373,23 @@
   }
 
   function dialogoAlta() {
-    const caja = S.hoja(`<div class="asa"></div><h2>Añadir un jugador</h2><p class="sub">Entra en el torneo a partir de la próxima ronda.</p>
-      <label class="etq" for="al-n">Nombre y curso</label><input id="al-n" class="campo" maxlength="60" placeholder="Ana 4ºA" autocomplete="off">
+    const aviso1 = db.currentRound === 1 ? '<p class="ayuda" style="margin:0 0 8px">Estás en la ronda 1. Si todavía no ha empezado nadie a jugar y faltan clases por apuntar, es mejor <b>Volver a la inscripción</b> (pestaña Torneo): así entran en el sorteo de la ronda 1.</p>' : '';
+    const caja = S.hoja(`<div class="asa"></div><h2>Añadir jugadores</h2><p class="sub">Entran en el torneo a partir de la próxima ronda.</p>${aviso1}
+      <label class="etq" for="al-c">Clase (opcional; se añade a cada nombre)</label><input id="al-c" class="campo" maxlength="12" placeholder="4ºA" autocomplete="off">
+      <label class="etq" for="al-n">Nombres (uno por línea)</label><textarea id="al-n" class="campo" style="min-height:120px" placeholder="Ana&#10;Luis&#10;Marta"></textarea>
       <label class="etq" for="al-p">Por las rondas que ya se han jugado</label>
-      <select id="al-p" class="campo"><option value="0">Suma 0 puntos</option><option value="0.5">Suma ½ punto por ronda</option></select>
+      <select id="al-p" class="campo"><option value="0">Suman 0 puntos</option><option value="0.5">Suman ½ punto por ronda</option></select>
       <p class="error-txt" id="al-e"></p>
       <div class="btns dos"><button class="btn sec" data-r="no">Cancelar</button><button class="btn cinta" data-r="si">Añadir</button></div>`);
     caja.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-r]'); if (!b) return;
       if (b.dataset.r !== 'si') { S.cerrarHoja(); return; }
-      const nombre = $('#al-n', caja).value.trim();
-      if (!nombre) { $('#al-e', caja).textContent = 'Escribe el nombre.'; return; }
+      const cl = $('#al-c', caja).value.replace(/\s+/g, '').trim();
+      const nombres = $('#al-n', caja).value.split('\n').map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean).map((x) => (cl && !S.curso(x) ? x + ' ' + cl : x));
+      if (!nombres.length) { $('#al-e', caja).textContent = 'Escribe al menos un nombre.'; return; }
       try {
-        aplicar(await S.api.enviar({ action: 'addPlayer', key: clave, name: nombre, puntos: parseFloat($('#al-p', caja).value) }));
-        S.cerrarHoja(); pintar(); S.toast(nombre + ' añadido', 'ok');
+        aplicar(await S.api.enviar({ action: 'addPlayers', key: clave, nombres, puntos: parseFloat($('#al-p', caja).value) }));
+        S.cerrarHoja(); pintar(); S.toast(nombres.length === 1 ? nombres[0] + ' añadido' : nombres.length + ' jugadores añadidos', 'ok');
       } catch (err) { $('#al-e', caja).textContent = err.message; }
     });
   }
@@ -503,6 +507,14 @@
       return;
     }
     if (act === 'crear') { crear(); return; }
+    if (act === 'reabrir-insc') {
+      const hayRes = db.matches.some((m) => m.round === 1 && m.player2Id > 0 && m.result);
+      const ok = await S.confirmar({ titulo: 'Volver a la inscripción', texto: hayRes ? 'Ya hay resultados anotados en la ronda 1: el torneo se guarda en «Torneos anteriores» y los jugadores pasan a la lista de apuntados.' : 'Se borran las mesas de la ronda 1 y los jugadores pasan a la lista de apuntados. Podrás seguir añadiendo y sortear de nuevo.', ok: 'Volver', peligro: hayRes });
+      if (!ok) return;
+      try { const r = await S.api.enviar({ action: 'reopenInscripcion', key: clave }); aplicar(r); insc = r.inscritos || []; ronda = 1; histAdmin = null; irA('torneo'); pintar(); window.scrollTo(0, 0); S.toast('Ya puedes seguir apuntando', 'ok'); }
+      catch (err) { S.toast(err.message, 'mal'); }
+      return;
+    }
     if (act === 'reintentar-insc') { insc = null; inscErr = ''; pintar(); return; }
     if (act === 'apuntar') {
       const cl = form.clase.replace(/\s+/g, '').trim();
