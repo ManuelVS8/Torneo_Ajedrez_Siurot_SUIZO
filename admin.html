@@ -71,7 +71,8 @@
   const guardado = {};          // estado de guardado por mesa: 'guardando' | 'error'
   const cola = [];              // resultados pendientes de enviar
   let enCurso = false;
-  const form = { nombre: '', jugadores: '', rondas: '', fecha: '' };   // formulario "Nuevo torneo" (no se pierde al refrescar)
+  const form = { nombre: '', clase: '', jugadores: '', rondas: '', fecha: '' };   // formulario "Nuevo torneo"
+  let insc = null, inscErr = '', cargandoI = false;   // jugadores apuntados (se guardan en la hoja hasta crear el torneo)
   let aviso = null;             // texto del aviso en edición
 
   const norm = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -172,7 +173,7 @@
   function vacio(t, s) { return `<div class="vacio">${I.peon}<b>${t}</b>${s}</div>`; }
 
   function vistaMesas() {
-    if (!db.started) return vacio('No hay torneo en marcha', 'Ve a la pestaña Torneo para crear uno.');
+    if (!db.started) return vacio('No hay torneo en marcha', 'Ve a la pestaña Torneo para apuntar a los jugadores y crearlo.');
     if (!ronda || ronda > db.currentRound) ronda = db.currentRound;
     const p = por();
     const ms = S.partidasRonda(db, ronda);
@@ -222,6 +223,33 @@
     return `<div class="btns" style="margin:0 0 14px"><button class="btn cinta" data-act="alta">${I.mas} Añadir un jugador nuevo</button></div>` + h + '<p class="nota">Toca un jugador para ver sus partidas, marcarlo ausente, o retirarlo del torneo (por ejemplo, si se marcha del colegio).</p>';
   }
 
+  async function cargarInsc() {
+    cargandoI = true; inscErr = '';
+    try { const r = await S.api.enviar({ action: 'getInscritos', key: clave }); insc = r.inscritos || []; }
+    catch (e) { inscErr = e.message; }
+    cargandoI = false;
+    if (tab === 'torneo') pintar();
+  }
+  function inscripcionHtml(hay) {
+    if (insc === null) {
+      if (!cargandoI && !inscErr) cargarInsc();
+      return `<section class="panel"><h2>Jugadores apuntados</h2>${inscErr ? `<p class="ayuda">No se pudo cargar la lista: ${esc(inscErr)}</p><div class="btns"><button class="btn sec" data-act="reintentar-insc">Reintentar</button></div>` : '<p class="ayuda">Cargando la lista…</p>'}</section>`;
+    }
+    const grupos = {};
+    insc.forEach((n) => { const c = S.curso(n); const k = c ? c.clase : 'Sin clase'; (grupos[k] = grupos[k] || []).push(n); });
+    const claves = Object.keys(grupos).sort((x, y) => x === 'Sin clase' ? 1 : y === 'Sin clase' ? -1 : x.localeCompare(y, 'es', { numeric: true }));
+    const lista = claves.length
+      ? claves.map((k) => `<h3 class="cat-insc">${esc(k)} <span class="num">· ${grupos[k].length}</span></h3><ul class="lista-insc">${grupos[k].map((n) => `<li><span>${esc(n)}</span><button class="quitar" data-act="quitar-insc" data-n="${esc(n)}" aria-label="Quitar a ${esc(n)}">×</button></li>`).join('')}</ul>`).join('')
+      : '<p class="ayuda">Todavía no hay nadie apuntado.</p>';
+    return `<section class="panel"><h2>${hay ? 'Apuntar para el próximo torneo' : 'Apuntar jugadores'}</h2>
+      <p class="ayuda" style="margin:0 0 6px">Ve clase por clase. La lista se guarda en tu hoja y no empieza nada hasta que pulses «Crear torneo».</p>
+      <label class="etq" for="f-clase">Clase (opcional; se añade a cada nombre)</label><input id="f-clase" class="campo" maxlength="12" placeholder="4ºA" value="${esc(form.clase)}">
+      <label class="etq" for="f-jug">Quién juega (uno por línea)</label>
+      <textarea id="f-jug" class="campo" style="min-height:130px" placeholder="Ana&#10;Luis&#10;Marta">${esc(form.jugadores)}</textarea>
+      <div class="btns"><button class="btn" data-act="apuntar">Apuntar a la lista</button></div></section>
+      <section class="panel"><h2>Apuntados · <span class="num">${insc.length}</span></h2>${lista}
+      ${insc.length ? '<div class="btns"><button class="btn sec" data-act="vaciar-insc">Vaciar la lista</button></div>' : ''}</section>`;
+  }
   let histAdmin = null, cargandoH = false;
   async function cargarHistAdmin() {
     cargandoH = true;
@@ -265,13 +293,12 @@
         <p class="ayuda">Al crear un torneo nuevo, el anterior se guarda solo aquí (los 30 últimos).</p></section>`;
       if (db.currentRound > 1) h += `<section class="panel"><h2>Me he equivocado</h2><p>Si generaste una ronda por error, puedes deshacer la última (la ronda ${db.currentRound}) y sus resultados. Para corregir un resultado de una ronda anterior, ve a Mesas, elige esa ronda y cámbialo.</p><div class="btns"><button class="btn sec" data-act="deshacer">Deshacer la ronda ${db.currentRound}</button></div></section>`;
     }
-    const lineas = form.jugadores.split('\n').map((x) => x.trim()).filter(Boolean).length;
+    const lineas = insc ? insc.length : 0;
+    h += inscripcionHtml(hay);
     h += `<section class="panel"><h2>${hay ? 'Empezar un torneo nuevo' : 'Crear el torneo'}</h2>
       ${hay ? '<p class="ayuda" style="margin:0 0 6px">El torneo actual se guarda en «Torneos anteriores» antes de empezar el nuevo.</p>' : ''}
       <label class="etq" for="f-nombre">Nombre del torneo</label><input id="f-nombre" class="campo" maxlength="60" placeholder="Torneo de ajedrez del recreo" value="${esc(form.nombre)}">
-      <label class="etq" for="f-jug">Jugadores (uno por línea, con el curso: «Ana 4ºA»)</label>
-      <textarea id="f-jug" class="campo" style="min-height:170px" placeholder="Awatef 4ºA&#10;Antonio 3ºB&#10;Lucas 4ºA">${esc(form.jugadores)}</textarea>
-      <p class="ayuda" id="f-cuenta">${lineas} jugador${lineas === 1 ? '' : 'es'}${lineas >= 4 ? ' · rondas recomendadas (FIDE): ' + sugeridas(lineas) : ' · hacen falta al menos 4'}. Si dos comparten nombre, añade el curso.</p>
+      <p class="ayuda" id="f-cuenta">${lineas} jugador${lineas === 1 ? '' : 'es'} apuntado${lineas === 1 ? '' : 's'}${lineas >= 4 ? ' · rondas recomendadas (FIDE): ' + sugeridas(lineas) : ' · hacen falta al menos 4'}.</p>
       <label class="etq" for="f-rondas">Número de rondas</label><select id="f-rondas" class="campo">${selRondas(lineas)}</select>
       <label class="etq" for="f-fecha">Día de la ronda 1 (opcional)</label><input id="f-fecha" class="campo" type="date" value="${esc(form.fecha)}">
       <div class="btns"><button class="btn cinta" data-act="crear">${hay ? 'Guardar el anterior y crear el torneo nuevo' : 'Crear torneo y sortear la ronda 1'}</button></div></section>`;
@@ -398,7 +425,7 @@
   }
 
   async function crear() {
-    const nombres = form.jugadores.split('\n').map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const nombres = insc || [];
     if (nombres.length < 4) { S.toast('Hacen falta al menos 4 jugadores', 'mal'); return; }
     const hay = db && db.started;
     const ok = await S.confirmar(hay
@@ -408,7 +435,7 @@
     S.toast('Creando el torneo…');
     try {
       const res = await S.api.enviar({ action: 'create', key: clave, players: nombres, rondas: parseInt(form.rondas, 10) || 0, nombre: form.nombre.trim() || 'Torneo de ajedrez', fecha: form.fecha });
-      aplicar(res); form.jugadores = ''; form.nombre = ''; form.rondas = ''; form.fecha = ''; aviso = null; ronda = 1; histAdmin = null;
+      aplicar(res); insc = []; form.jugadores = ''; form.clase = ''; form.nombre = ''; form.rondas = ''; form.fecha = ''; aviso = null; ronda = 1; histAdmin = null;
       irA('mesas'); pintar();
       S.toast('Torneo creado', 'ok');
       if (res.warnings && res.warnings.length) S.aviso('Revisa estas mesas', '<ul>' + res.warnings.map((w) => `<li>${esc(w)}</li>`).join('') + '</ul>');
@@ -476,6 +503,31 @@
       return;
     }
     if (act === 'crear') { crear(); return; }
+    if (act === 'reintentar-insc') { insc = null; inscErr = ''; pintar(); return; }
+    if (act === 'apuntar') {
+      const cl = form.clase.replace(/\s+/g, '').trim();
+      const nombres = form.jugadores.split('\n').map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean).map((x) => (cl && !S.curso(x) ? x + ' ' + cl : x));
+      if (!nombres.length) { S.toast('Escribe al menos un nombre', 'mal'); return; }
+      try {
+        const r = await S.api.enviar({ action: 'addInscritos', key: clave, nombres });
+        insc = r.inscritos || []; form.jugadores = ''; form.clase = '';
+        pintar(); S.toast(`${nombres.length} apuntado${nombres.length === 1 ? '' : 's'}`, 'ok');
+        const f = $('#f-clase'); if (f) f.focus();
+      } catch (err) { S.toast(err.message, 'mal'); }
+      return;
+    }
+    if (act === 'quitar-insc') {
+      try { const r = await S.api.enviar({ action: 'removeInscrito', key: clave, nombre: a.dataset.n }); insc = r.inscritos || []; pintar(); }
+      catch (err) { S.toast(err.message, 'mal'); }
+      return;
+    }
+    if (act === 'vaciar-insc') {
+      const ok = await S.confirmar({ titulo: 'Vaciar la lista', texto: `Se quitan los ${insc.length} jugadores apuntados. No afecta a ningún torneo ya creado.`, ok: 'Vaciar', peligro: true });
+      if (!ok) return;
+      try { const r = await S.api.enviar({ action: 'clearInscritos', key: clave }); insc = r.inscritos || []; pintar(); S.toast('Lista vaciada', 'ok'); }
+      catch (err) { S.toast(err.message, 'mal'); }
+      return;
+    }
     if (act === 'salir') { salir(); return; }
   });
   document.addEventListener('change', async (e) => {
@@ -489,12 +541,8 @@
     else if (id === 'f-rondas') form.rondas = e.target.value;
     else if (id === 'f-fecha') form.fecha = e.target.value;
     else if (id === 'aviso') aviso = e.target.value;
-    else if (id === 'f-jug') {
-      form.jugadores = e.target.value;
-      const n = form.jugadores.split('\n').map((x) => x.trim()).filter(Boolean).length;
-      $('#f-cuenta').textContent = `${n} jugador${n === 1 ? '' : 'es'}${n >= 4 ? ' · rondas recomendadas (FIDE): ' + sugeridas(n) : ' · hacen falta al menos 4'}. Si dos comparten nombre, añade el curso.`;
-      form.rondas = ''; $('#f-rondas').innerHTML = selRondas(n);
-    }
+    else if (id === 'f-clase') form.clase = e.target.value;
+    else if (id === 'f-jug') form.jugadores = e.target.value;
   });
   setInterval(() => { if (clave && !document.hidden && tab !== 'torneo' && !cola.length && !enCurso && !generando && !S.hayVentana()) cargar(true); }, 45000);
 
